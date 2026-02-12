@@ -1,22 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
   TextInput, 
   TouchableOpacity, 
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Keyboard,
   Pressable,
+  ActionSheetIOS,
 } from 'react-native';
 import Animated, {
   FadeIn,
   FadeInDown,
   FadeOut,
-  SlideInRight,
-  Layout,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -28,27 +27,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../src/store/authStore';
 import { dailyAPI, aiAPI } from '../../src/services/api';
 import { theme } from '../../src/theme';
-import {
-  ScreenWrapper,
-  GlassCard,
-  PrimaryButton,
-  AnimatedChip,
-  ModeSwitch,
-  ShimmerLoader,
-  ScanShimmer,
-} from '../../src/components/ui';
-
-type Mode = 'fridge' | 'mood' | 'hybrid';
+import { ScreenWrapper, AnimatedChip, ScanShimmer } from '../../src/components/ui';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export default function HomeTab() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [mode, setMode] = useState<Mode>('mood');
+  const inputRef = useRef<TextInput>(null);
   const [input, setInput] = useState('');
   const [ingredients, setIngredients] = useState<{ name: string; confidence: number }[]>([]);
-  const [uncertainIngredients, setUncertainIngredients] = useState<{ name: string; confidence: number }[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   
@@ -85,7 +73,37 @@ export default function HomeTab() {
   const remainingCarbs = Math.max(0, (user?.daily_carbs || 200) - dailyTotals.total_carbs);
   const remainingFat = Math.max(0, (user?.daily_fat || 67) - dailyTotals.total_fat);
 
-  const handleScanFridge = async () => {
+  const showImageOptions = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            handleCamera();
+          } else if (buttonIndex === 2) {
+            handleGallery();
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        'Add Photo',
+        'Scan your fridge to detect ingredients',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take Photo', onPress: handleCamera },
+          { text: 'Choose from Library', onPress: handleGallery },
+        ]
+      );
+    }
+  };
+
+  const handleCamera = async () => {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
@@ -101,19 +119,7 @@ export default function HomeTab() {
       });
 
       if (!result.canceled && result.assets[0].base64) {
-        setIsScanning(true);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        try {
-          const response = await aiAPI.scanIngredients(result.assets[0].base64);
-          setIngredients(response.ingredients || []);
-          setUncertainIngredients(response.uncertain || []);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (error: any) {
-          Alert.alert('Scan Error', error.response?.data?.detail || 'Failed to analyze image');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        } finally {
-          setIsScanning(false);
-        }
+        await scanImage(result.assets[0].base64);
       }
     } catch (error) {
       console.error('Camera error:', error);
@@ -121,7 +127,7 @@ export default function HomeTab() {
     }
   };
 
-  const handlePickImage = async () => {
+  const handleGallery = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -137,19 +143,7 @@ export default function HomeTab() {
       });
 
       if (!result.canceled && result.assets[0].base64) {
-        setIsScanning(true);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        try {
-          const response = await aiAPI.scanIngredients(result.assets[0].base64);
-          setIngredients(response.ingredients || []);
-          setUncertainIngredients(response.uncertain || []);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (error: any) {
-          Alert.alert('Scan Error', error.response?.data?.detail || 'Failed to analyze image');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        } finally {
-          setIsScanning(false);
-        }
+        await scanImage(result.assets[0].base64);
       }
     } catch (error) {
       console.error('Gallery error:', error);
@@ -157,36 +151,48 @@ export default function HomeTab() {
     }
   };
 
+  const scanImage = async (base64: string) => {
+    setIsScanning(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    try {
+      const response = await aiAPI.scanIngredients(base64);
+      const newIngredients = [...(response.ingredients || []), ...(response.uncertain || [])];
+      setIngredients(prev => [...prev, ...newIngredients]);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error: any) {
+      Alert.alert('Scan Error', error.response?.data?.detail || 'Failed to analyze image');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   const removeIngredient = (name: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIngredients(ingredients.filter(i => i.name !== name));
-    setUncertainIngredients(uncertainIngredients.filter(i => i.name !== name));
   };
 
-  const confirmUncertain = (item: { name: string; confidence: number }) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIngredients([...ingredients, item]);
-    setUncertainIngredients(uncertainIngredients.filter(i => i.name !== item.name));
-  };
-
-  const handleGenerate = async () => {
-    // Validate based on mode
-    if (mode === 'fridge' && ingredients.length === 0) {
+  const handleSubmit = async () => {
+    // Auto-detect mode based on input
+    const hasIngredients = ingredients.length > 0;
+    const hasText = input.trim().length > 0;
+    
+    if (!hasIngredients && !hasText) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      Alert.alert('No Ingredients', 'Please scan your fridge or add ingredients first');
-      return;
-    }
-    if (mode === 'mood' && !input.trim()) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      Alert.alert('What are you craving?', 'Please enter what you feel like eating');
-      return;
-    }
-    if (mode === 'hybrid' && ingredients.length === 0 && !input.trim()) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      Alert.alert('Missing Input', 'Please scan your fridge or enter what you\'re craving');
+      Alert.alert('What would you like to eat?', 'Type what you\'re craving or scan your fridge');
       return;
     }
 
+    // Determine mode automatically
+    let mode = 'mood';
+    if (hasIngredients && hasText) {
+      mode = 'hybrid';
+    } else if (hasIngredients) {
+      mode = 'fridge';
+    }
+
+    Keyboard.dismiss();
     setIsGenerating(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
@@ -250,86 +256,45 @@ export default function HomeTab() {
           </View>
         </Animated.View>
 
-        <ScrollView 
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+        {/* Main Content Area */}
+        <Pressable 
+          style={styles.mainArea} 
+          onPress={() => inputRef.current?.focus()}
         >
-          {/* Mode Selector */}
-          <Animated.View entering={FadeInDown.duration(300).delay(200)}>
-            <ModeSwitch value={mode} onChange={setMode} />
-          </Animated.View>
-
-          {/* Main Input Area */}
-          <Animated.View 
-            entering={FadeInDown.duration(300).delay(300)}
-            style={styles.inputSection}
-          >
-            <GlassCard style={styles.inputCard}>
-              <TextInput
-                style={styles.mainInput}
-                value={input}
-                onChangeText={setInput}
-                placeholder={
-                  mode === 'fridge' 
-                    ? "Any specific dish in mind? (optional)" 
-                    : mode === 'mood'
-                    ? "What are you craving? e.g., chicken and rice"
-                    : "What are you craving?"
-                }
-                placeholderTextColor={theme.colors.textTertiary}
-                multiline
-              />
-              
-              {/* Camera buttons for Fridge and Hybrid modes */}
-              {(mode === 'fridge' || mode === 'hybrid') && (
-                <View style={styles.cameraButtons}>
-                  <IconButton 
-                    icon="camera-outline" 
-                    onPress={handleScanFridge}
-                    variant="surface"
-                  />
-                  <IconButton 
-                    icon="images-outline" 
-                    onPress={handlePickImage}
-                    variant="surface"
-                  />
-                </View>
-              )}
-            </GlassCard>
-          </Animated.View>
-
           {/* Scanning State */}
           {isScanning && (
             <Animated.View 
               entering={FadeIn.duration(200)}
               exiting={FadeOut.duration(200)}
-              style={styles.scanningSection}
+              style={styles.scanningContainer}
             >
-              <GlassCard>
-                <ScanShimmer />
-                <Text style={styles.scanningText}>Analyzing your fridge...</Text>
-              </GlassCard>
+              <ScanShimmer />
+              <Text style={styles.scanningText}>Analyzing your fridge...</Text>
             </Animated.View>
           )}
 
-          {/* Ingredients List */}
-          {!isScanning && (mode === 'fridge' || mode === 'hybrid') && ingredients.length > 0 && (
+          {/* Generating State */}
+          {isGenerating && (
             <Animated.View 
               entering={FadeIn.duration(200)}
-              style={styles.ingredientsSection}
+              exiting={FadeOut.duration(200)}
+              style={styles.generatingContainer}
             >
-              <View style={styles.ingredientsHeader}>
-                <Text style={styles.ingredientsTitle}>Detected Ingredients</Text>
-                <Text style={styles.ingredientsCount}>{ingredients.length}</Text>
-              </View>
+              <Text style={styles.generatingText}>Generating meals...</Text>
+            </Animated.View>
+          )}
+
+          {/* Ingredients Display */}
+          {!isScanning && !isGenerating && ingredients.length > 0 && (
+            <Animated.View 
+              entering={FadeIn.duration(200)}
+              style={styles.ingredientsContainer}
+            >
               <View style={styles.chipContainer}>
                 {ingredients.map((item, index) => (
                   <AnimatedChip
                     key={`${item.name}-${index}`}
                     label={item.name}
-                    confidence={item.confidence}
                     onRemove={() => removeIngredient(item.name)}
                   />
                 ))}
@@ -337,54 +302,37 @@ export default function HomeTab() {
             </Animated.View>
           )}
 
-          {/* Uncertain Ingredients */}
-          {!isScanning && (mode === 'fridge' || mode === 'hybrid') && uncertainIngredients.length > 0 && (
-            <Animated.View 
-              entering={FadeIn.duration(200).delay(100)}
-              style={styles.ingredientsSection}
-            >
-              <Text style={styles.uncertainTitle}>Uncertain (tap to confirm)</Text>
-              <View style={styles.chipContainer}>
-                {uncertainIngredients.map((item, index) => (
-                  <AnimatedChip
-                    key={`uncertain-${item.name}-${index}`}
-                    label={item.name}
-                    confidence={item.confidence}
-                    variant="uncertain"
-                    onPress={() => confirmUncertain(item)}
-                    onRemove={() => removeIngredient(item.name)}
-                  />
-                ))}
-              </View>
-            </Animated.View>
+          {/* Text Input - Full Screen Style */}
+          {!isScanning && !isGenerating && (
+            <TextInput
+              ref={inputRef}
+              style={styles.mainInput}
+              value={input}
+              onChangeText={setInput}
+              placeholder={ingredients.length > 0 
+                ? "Add a craving or press return to generate..." 
+                : "What are you craving?"
+              }
+              placeholderTextColor={theme.colors.textTertiary}
+              multiline
+              returnKeyType="send"
+              blurOnSubmit={true}
+              onSubmitEditing={handleSubmit}
+            />
           )}
-        </ScrollView>
+        </Pressable>
 
-        {/* Bottom Section */}
+        {/* Bottom Bar */}
         <Animated.View 
-          entering={FadeInDown.duration(300).delay(400)}
-          style={styles.bottomSection}
+          entering={FadeInDown.duration(300).delay(200)}
+          style={styles.bottomBar}
         >
-          {/* Remaining Macros */}
-          <GlassCard style={styles.macrosCard}>
-            <View style={styles.remainingRow}>
-              <Text style={styles.remainingLabel}>Remaining</Text>
-              <Text style={styles.remainingCalories}>{remainingCalories} cal</Text>
-            </View>
-            <View style={styles.macrosMini}>
-              <MacroMini label="P" value={remainingProtein} color={theme.colors.protein} />
-              <MacroMini label="C" value={remainingCarbs} color={theme.colors.carbs} />
-              <MacroMini label="F" value={remainingFat} color={theme.colors.fat} />
-            </View>
-          </GlassCard>
-
-          {/* Generate Button */}
-          <PrimaryButton
-            title="Generate Meals"
-            icon="sparkles"
-            onPress={handleGenerate}
-            loading={isGenerating}
-          />
+          <View style={styles.remainingPill}>
+            <Text style={styles.remainingLabel}>Remaining</Text>
+            <Text style={styles.remainingCalories}>{remainingCalories} cal</Text>
+          </View>
+          
+          <AddButton onPress={showImageOptions} />
         </Animated.View>
       </KeyboardAvoidingView>
     </ScreenWrapper>
@@ -395,10 +343,9 @@ export default function HomeTab() {
 interface IconButtonProps {
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
-  variant?: 'default' | 'surface';
 }
 
-const IconButton: React.FC<IconButtonProps> = ({ icon, onPress, variant = 'default' }) => {
+const IconButton: React.FC<IconButtonProps> = ({ icon, onPress }) => {
   const scale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -407,7 +354,34 @@ const IconButton: React.FC<IconButtonProps> = ({ icon, onPress, variant = 'defau
 
   const handlePressIn = () => {
     scale.value = withSpring(0.9, theme.animation.spring.snappy);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, theme.animation.spring.gentle);
+  };
+
+  return (
+    <AnimatedPressable
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={[styles.iconButton, animatedStyle]}
+    >
+      <Ionicons name={icon} size={22} color={theme.colors.text} />
+    </AnimatedPressable>
+  );
+};
+
+// Add Button (+ icon for camera)
+const AddButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.9, theme.animation.spring.snappy);
   };
 
   const handlePressOut = () => {
@@ -419,34 +393,12 @@ const IconButton: React.FC<IconButtonProps> = ({ icon, onPress, variant = 'defau
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      style={[
-        styles.iconButton,
-        variant === 'surface' && styles.iconButtonSurface,
-        animatedStyle,
-      ]}
+      style={[styles.addButton, animatedStyle]}
     >
-      <Ionicons 
-        name={icon} 
-        size={22} 
-        color={theme.colors.text} 
-      />
+      <Ionicons name="add" size={24} color={theme.colors.text} />
     </AnimatedPressable>
   );
 };
-
-// Mini Macro Display
-interface MacroMiniProps {
-  label: string;
-  value: number;
-  color: string;
-}
-
-const MacroMini: React.FC<MacroMiniProps> = ({ label, value, color }) => (
-  <View style={styles.macroMiniItem}>
-    <View style={[styles.macroMiniDot, { backgroundColor: color }]} />
-    <Text style={styles.macroMiniText}>{label}: {value}g</Text>
-  </View>
-);
 
 const styles = StyleSheet.create({
   keyboardView: {
@@ -490,38 +442,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  iconButtonSurface: {
-    backgroundColor: theme.colors.surfaceElevated,
-    ...theme.shadows.sm,
-  },
-  scrollView: {
+  mainArea: {
     flex: 1,
-  },
-  scrollContent: {
     paddingHorizontal: theme.spacing.xl,
-    paddingBottom: theme.spacing.lg,
-    gap: theme.spacing.lg,
-  },
-  inputSection: {
-    marginTop: theme.spacing.sm,
-  },
-  inputCard: {
-    minHeight: 120,
+    paddingTop: theme.spacing.xl,
   },
   mainInput: {
-    ...theme.typography.bodyLarge,
+    ...theme.typography.headlineLarge,
     color: theme.colors.text,
-    minHeight: 60,
+    flex: 1,
     textAlignVertical: 'top',
   },
-  cameraButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.sm,
-  },
-  scanningSection: {
-    marginTop: theme.spacing.sm,
+  scanningContainer: {
+    marginBottom: theme.spacing.xl,
   },
   scanningText: {
     ...theme.typography.bodyMedium,
@@ -529,78 +462,53 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: theme.spacing.md,
   },
-  ingredientsSection: {
-    marginTop: theme.spacing.sm,
-  },
-  ingredientsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  generatingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: theme.spacing.md,
   },
-  ingredientsTitle: {
-    ...theme.typography.headlineSmall,
-    color: theme.colors.text,
-  },
-  ingredientsCount: {
-    ...theme.typography.labelMedium,
+  generatingText: {
+    ...theme.typography.headlineMedium,
     color: theme.colors.textSecondary,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.radius.sm,
   },
-  uncertainTitle: {
-    ...theme.typography.labelLarge,
-    color: theme.colors.warning,
-    marginBottom: theme.spacing.md,
+  ingredientsContainer: {
+    marginBottom: theme.spacing.lg,
   },
   chipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
-  bottomSection: {
-    paddingHorizontal: theme.spacing.xl,
-    paddingVertical: theme.spacing.lg,
-    paddingBottom: theme.spacing.xxl,
-    gap: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.borderLight,
-  },
-  macrosCard: {
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.lg,
-  },
-  remainingRow: {
+  bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.lg,
+    paddingBottom: theme.spacing.xxl,
+  },
+  remainingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    gap: theme.spacing.md,
   },
   remainingLabel: {
     ...theme.typography.labelMedium,
     color: theme.colors.textSecondary,
   },
   remainingCalories: {
-    ...theme.typography.headlineMedium,
+    ...theme.typography.headlineSmall,
     color: theme.colors.text,
   },
-  macrosMini: {
-    flexDirection: 'row',
-    gap: theme.spacing.lg,
-  },
-  macroMiniItem: {
-    flexDirection: 'row',
+  addButton: {
+    width: 48,
+    height: 48,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: theme.spacing.xs,
-  },
-  macroMiniDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  macroMiniText: {
-    ...theme.typography.labelSmall,
-    color: theme.colors.textSecondary,
   },
 });
