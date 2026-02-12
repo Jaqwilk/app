@@ -530,6 +530,8 @@ async def generate_meals(request: MealGenerateRequest, user=Depends(get_current_
     if not check_rate_limit(user["id"]):
         raise HTTPException(status_code=429, detail="You've reached your usage limit. Please try again later.")
     
+    import json
+    
     profile = user.get("profile", {}) or {}
     
     # Determine meal time
@@ -618,7 +620,6 @@ Output ONLY valid JSON in this exact format:
         response = await chat.send_message(user_message)
         
         # Parse JSON response
-        import json
         response_text = response.strip()
         if response_text.startswith("```json"):
             response_text = response_text[7:]
