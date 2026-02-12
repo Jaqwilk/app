@@ -158,6 +158,9 @@ class FridgeAITester:
         }
         
         response = self.make_request("POST", "/auth/login", invalid_login)
+        print(f"DEBUG: Invalid login response status: {response.status_code if response else 'None'}")
+        print(f"DEBUG: Invalid login response text: {response.text if response else 'None'}")
+        
         if response and response.status_code == 401:
             self.log_result("Invalid login rejection", True, "Invalid credentials properly rejected")
         elif response and response.status_code == 200:
@@ -168,7 +171,8 @@ class FridgeAITester:
             else:
                 self.log_result("Invalid login rejection", False, "Should reject invalid credentials", data)
         else:
-            self.log_result("Invalid login rejection", False, "Should reject invalid credentials")
+            error_msg = f"Status: {response.status_code if response else 'None'}, Text: {response.text if response else 'Connection failed'}"
+            self.log_result("Invalid login rejection", False, f"Should reject invalid credentials - {error_msg}")
         
         return True
     
