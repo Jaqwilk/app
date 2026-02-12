@@ -11,6 +11,7 @@ import {
   Keyboard,
   Pressable,
   ActionSheetIOS,
+  useWindowDimensions,
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -19,6 +20,9 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  useAnimatedKeyboard,
+  useAnimatedReaction,
+  runOnJS,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -28,6 +32,27 @@ import { useAuthStore } from '../../src/store/authStore';
 import { dailyAPI, aiAPI } from '../../src/services/api';
 import { theme } from '../../src/theme';
 import { ScreenWrapper, AnimatedChip, ScanShimmer } from '../../src/components/ui';
+import { 
+  Typewriter, 
+  SearchAnimation, 
+  AnimatedCounter,
+  InlineMealResults 
+} from '../../src/components/animations';
+
+type AppState = 'idle' | 'typing' | 'scanning' | 'generating' | 'results';
+
+interface MealOption {
+  name: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  prep_time_min: number;
+  ingredients: { name: string; amount: string }[];
+  steps: string[];
+  why_it_fits: string;
+  shopping_addons?: string[];
+}
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -35,10 +60,11 @@ export default function HomeTab() {
   const router = useRouter();
   const { user } = useAuthStore();
   const inputRef = useRef<TextInput>(null);
+  const [appState, setAppState] = useState<AppState>('idle');
   const [input, setInput] = useState('');
+  const [submittedPrompt, setSubmittedPrompt] = useState('');
   const [ingredients, setIngredients] = useState<{ name: string; confidence: number }[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedMeals, setGeneratedMeals] = useState<MealOption[]>([]);
   
   // Daily totals
   const [dailyTotals, setDailyTotals] = useState({
@@ -49,6 +75,12 @@ export default function HomeTab() {
   });
 
   const today = new Date().toISOString().split('T')[0];
+
+  // Keyboard-aware bottom padding
+  const keyboard = useAnimatedKeyboard();
+  const bottomBarStyle = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(keyboard.height.value + 16, 32),
+  }));
 
   useEffect(() => {
     loadDailyLog();
@@ -83,11 +115,8 @@ export default function HomeTab() {
           cancelButtonIndex: 0,
         },
         (buttonIndex) => {
-          if (buttonIndex === 1) {
-            handleCamera();
-          } else if (buttonIndex === 2) {
-            handleGallery();
-          }
+          if (buttonIndex === 1) handleCamera();
+          else if (buttonIndex === 2) handleGallery();
         }
       );
     } else {
@@ -107,7 +136,7 @@ export default function HomeTab() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera access is needed to scan your fridge');
+        Alert.alert('Permission Required', 'Camera access is needed');
         return;
       }
 
@@ -122,7 +151,6 @@ export default function HomeTab() {
         await scanImage(result.assets[0].base64);
       }
     } catch (error) {
-      console.error('Camera error:', error);
       Alert.alert('Error', 'Failed to open camera');
     }
   };
@@ -146,13 +174,12 @@ export default function HomeTab() {
         await scanImage(result.assets[0].base64);
       }
     } catch (error) {
-      console.error('Gallery error:', error);
       Alert.alert('Error', 'Failed to open gallery');
     }
   };
 
   const scanImage = async (base64: string) => {
-    setIsScanning(true);
+    setAppState('scanning');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
     try {
@@ -160,11 +187,11 @@ export default function HomeTab() {
       const newIngredients = [...(response.ingredients || []), ...(response.uncertain || [])];
       setIngredients(prev => [...prev, ...newIngredients]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAppState('idle');
     } catch (error: any) {
       Alert.alert('Scan Error', error.response?.data?.detail || 'Failed to analyze image');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      setIsScanning(false);
+      setAppState('idle');
     }
   };
 
@@ -173,8 +200,22 @@ export default function HomeTab() {
     setIngredients(ingredients.filter(i => i.name !== name));
   };
 
+  const handleInputChange = (text: string) => {
+    setInput(text);
+    if (text.length > 0 && appState === 'idle') {
+      setAppState('typing');
+    } else if (text.length === 0 && appState === 'typing') {
+      setAppState('idle');
+    }
+  };
+
+  const handleInputFocus = () => {
+    if (appState === 'idle' && input.length === 0) {
+      // Just focusing, keep idle for typewriter
+    }
+  };
+
   const handleSubmit = async () => {
-    // Auto-detect mode based on input
     const hasIngredients = ingredients.length > 0;
     const hasText = input.trim().length > 0;
     
@@ -184,18 +225,16 @@ export default function HomeTab() {
       return;
     }
 
-    // Determine mode automatically
-    let mode = 'mood';
-    if (hasIngredients && hasText) {
-      mode = 'hybrid';
-    } else if (hasIngredients) {
-      mode = 'fridge';
-    }
-
     Keyboard.dismiss();
-    setIsGenerating(true);
+    setSubmittedPrompt(input);
+    setAppState('generating');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
+    // Determine mode automatically
+    let mode = 'mood';
+    if (hasIngredients && hasText) mode = 'hybrid';
+    else if (hasIngredients) mode = 'fridge';
+
     try {
       const params = {
         mode,
@@ -209,29 +248,52 @@ export default function HomeTab() {
       };
 
       const response = await aiAPI.generateMeals(params);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      router.push({
-        pathname: '/results',
-        params: {
-          meals: JSON.stringify(response.options),
-          mealTime: response.meal_time,
-          mode: mode,
-        }
-      });
+      setGeneratedMeals(response.options);
+      // Don't set results state here - SearchAnimation will handle it
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', error.response?.data?.detail || 'Failed to generate meals');
-    } finally {
-      setIsGenerating(false);
+      setAppState('idle');
     }
   };
+
+  const handleSearchComplete = () => {
+    setAppState('results');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const handleSelectMeal = (meal: MealOption) => {
+    router.push({
+      pathname: '/results',
+      params: {
+        meals: JSON.stringify([meal]),
+        mealTime: 'auto',
+        mode: 'mood',
+        singleMeal: 'true',
+      }
+    });
+  };
+
+  const handleGenerateMore = () => {
+    setAppState('generating');
+    handleSubmit();
+  };
+
+  const handleDismissResults = () => {
+    setAppState('idle');
+    setInput('');
+    setSubmittedPrompt('');
+    setGeneratedMeals([]);
+  };
+
+  const isTypingOrIdle = appState === 'idle' || appState === 'typing';
 
   return (
     <ScreenWrapper>
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
+        keyboardVerticalOffset={0}
       >
         {/* Header */}
         <Animated.View 
@@ -245,91 +307,103 @@ export default function HomeTab() {
             <Text style={styles.todayText}>Today</Text>
           </View>
           <View style={styles.headerActions}>
-            <IconButton 
-              icon="refresh-outline" 
-              onPress={loadDailyLog}
-            />
-            <IconButton 
-              icon="settings-outline" 
-              onPress={() => router.push('/settings')}
-            />
+            <IconButton icon="refresh-outline" onPress={loadDailyLog} />
+            <IconButton icon="settings-outline" onPress={() => router.push('/settings')} />
           </View>
         </Animated.View>
 
         {/* Main Content Area */}
         <Pressable 
           style={styles.mainArea} 
-          onPress={() => inputRef.current?.focus()}
+          onPress={() => isTypingOrIdle && inputRef.current?.focus()}
         >
           {/* Scanning State */}
-          {isScanning && (
-            <Animated.View 
-              entering={FadeIn.duration(200)}
-              exiting={FadeOut.duration(200)}
-              style={styles.scanningContainer}
-            >
+          {appState === 'scanning' && (
+            <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)}>
               <ScanShimmer />
-              <Text style={styles.scanningText}>Analyzing your fridge...</Text>
+              <Text style={styles.statusText}>Analyzing your fridge...</Text>
             </Animated.View>
           )}
 
-          {/* Generating State */}
-          {isGenerating && (
-            <Animated.View 
-              entering={FadeIn.duration(200)}
-              exiting={FadeOut.duration(200)}
-              style={styles.generatingContainer}
-            >
-              <Text style={styles.generatingText}>Generating meals...</Text>
+          {/* Generating State with Search Animation */}
+          {appState === 'generating' && (
+            <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)}>
+              {submittedPrompt && (
+                <Text style={styles.promptText}>{submittedPrompt}</Text>
+              )}
+              <SearchAnimation onComplete={handleSearchComplete} />
             </Animated.View>
           )}
 
-          {/* Ingredients Display */}
-          {!isScanning && !isGenerating && ingredients.length > 0 && (
-            <Animated.View 
-              entering={FadeIn.duration(200)}
-              style={styles.ingredientsContainer}
-            >
-              <View style={styles.chipContainer}>
-                {ingredients.map((item, index) => (
-                  <AnimatedChip
-                    key={`${item.name}-${index}`}
-                    label={item.name}
-                    onRemove={() => removeIngredient(item.name)}
-                  />
-                ))}
-              </View>
+          {/* Results State */}
+          {appState === 'results' && (
+            <Animated.View entering={FadeIn.duration(200)}>
+              {submittedPrompt && (
+                <Text style={styles.promptText}>{submittedPrompt}</Text>
+              )}
+              <InlineMealResults
+                meals={generatedMeals}
+                onSelectMeal={handleSelectMeal}
+                onGenerateMore={handleGenerateMore}
+                onDismiss={handleDismissResults}
+              />
             </Animated.View>
           )}
 
-          {/* Text Input - Full Screen Style */}
-          {!isScanning && !isGenerating && (
-            <TextInput
-              ref={inputRef}
-              style={styles.mainInput}
-              value={input}
-              onChangeText={setInput}
-              placeholder={ingredients.length > 0 
-                ? "Add a craving or press return to generate..." 
-                : "What are you craving?"
-              }
-              placeholderTextColor={theme.colors.textTertiary}
-              multiline
-              returnKeyType="send"
-              blurOnSubmit={true}
-              onSubmitEditing={handleSubmit}
-            />
+          {/* Idle/Typing State */}
+          {isTypingOrIdle && (
+            <>
+              {/* Ingredients */}
+              {ingredients.length > 0 && (
+                <Animated.View entering={FadeIn.duration(200)} style={styles.ingredientsContainer}>
+                  <View style={styles.chipContainer}>
+                    {ingredients.map((item, index) => (
+                      <AnimatedChip
+                        key={`${item.name}-${index}`}
+                        label={item.name}
+                        onRemove={() => removeIngredient(item.name)}
+                      />
+                    ))}
+                  </View>
+                </Animated.View>
+              )}
+
+              {/* Typewriter Placeholder or Input */}
+              {appState === 'idle' && input.length === 0 ? (
+                <Pressable onPress={() => inputRef.current?.focus()}>
+                  <Typewriter isActive={true} />
+                </Pressable>
+              ) : null}
+
+              <TextInput
+                ref={inputRef}
+                style={[
+                  styles.mainInput,
+                  (appState === 'idle' && input.length === 0) && styles.hiddenInput,
+                ]}
+                value={input}
+                onChangeText={handleInputChange}
+                onFocus={handleInputFocus}
+                placeholder=""
+                placeholderTextColor={theme.colors.textTertiary}
+                multiline
+                returnKeyType="send"
+                blurOnSubmit={true}
+                onSubmitEditing={handleSubmit}
+              />
+            </>
           )}
         </Pressable>
 
         {/* Bottom Bar */}
-        <Animated.View 
-          entering={FadeInDown.duration(300).delay(200)}
-          style={styles.bottomBar}
-        >
+        <Animated.View style={[styles.bottomBar, bottomBarStyle]}>
           <View style={styles.remainingPill}>
             <Text style={styles.remainingLabel}>Remaining</Text>
-            <Text style={styles.remainingCalories}>{remainingCalories} cal</Text>
+            <AnimatedCounter 
+              value={remainingCalories} 
+              suffix=" cal"
+              style={styles.remainingCalories}
+            />
           </View>
           
           <AddButton onPress={showImageOptions} />
@@ -340,31 +414,15 @@ export default function HomeTab() {
 }
 
 // Icon Button Component
-interface IconButtonProps {
-  icon: keyof typeof Ionicons.glyphMap;
-  onPress: () => void;
-}
-
-const IconButton: React.FC<IconButtonProps> = ({ icon, onPress }) => {
+const IconButton: React.FC<{ icon: keyof typeof Ionicons.glyphMap; onPress: () => void }> = ({ icon, onPress }) => {
   const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = () => {
-    scale.value = withSpring(0.9, theme.animation.spring.snappy);
-  };
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, theme.animation.spring.gentle);
-  };
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   return (
     <AnimatedPressable
       onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+      onPressIn={() => { scale.value = withSpring(0.9, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
       style={[styles.iconButton, animatedStyle]}
     >
       <Ionicons name={icon} size={22} color={theme.colors.text} />
@@ -372,30 +430,19 @@ const IconButton: React.FC<IconButtonProps> = ({ icon, onPress }) => {
   );
 };
 
-// Add Button (+ icon for camera)
+// Add Button (photo icon)
 const AddButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
   const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = () => {
-    scale.value = withSpring(0.9, theme.animation.spring.snappy);
-  };
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, theme.animation.spring.gentle);
-  };
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   return (
     <AnimatedPressable
       onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+      onPressIn={() => { scale.value = withSpring(0.9, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
       style={[styles.addButton, animatedStyle]}
     >
-      <Ionicons name="add" size={24} color={theme.colors.text} />
+      <Ionicons name="image-outline" size={22} color={theme.colors.text} />
     </AnimatedPressable>
   );
 };
@@ -453,23 +500,20 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlignVertical: 'top',
   },
-  scanningContainer: {
-    marginBottom: theme.spacing.xl,
+  hiddenInput: {
+    position: 'absolute',
+    opacity: 0,
   },
-  scanningText: {
+  statusText: {
     ...theme.typography.bodyMedium,
     color: theme.colors.textSecondary,
     textAlign: 'center',
     marginTop: theme.spacing.md,
   },
-  generatingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  generatingText: {
-    ...theme.typography.headlineMedium,
-    color: theme.colors.textSecondary,
+  promptText: {
+    ...theme.typography.headlineLarge,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.md,
   },
   ingredientsContainer: {
     marginBottom: theme.spacing.lg,
@@ -483,8 +527,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.xl,
-    paddingVertical: theme.spacing.lg,
-    paddingBottom: theme.spacing.xxl,
+    paddingTop: theme.spacing.lg,
     gap: theme.spacing.md,
   },
   remainingPill: {
