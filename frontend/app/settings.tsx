@@ -6,14 +6,25 @@ import {
   ScrollView, 
   TouchableOpacity,
   Alert,
-  Linking,
-  ActivityIndicator
+  Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../src/store/authStore';
 import { gdprAPI, premiumAPI } from '../src/services/api';
+import { theme } from '../src/theme';
+import { ScreenWrapper, GlassCard, PrimaryButton, ShimmerLoader } from '../src/components/ui';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -23,6 +34,7 @@ export default function SettingsScreen() {
 
   const handleExportData = async () => {
     setIsExporting(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const data = await gdprAPI.exportData();
       Alert.alert(
@@ -30,15 +42,18 @@ export default function SettingsScreen() {
         'Your data has been prepared. In a production app, this would download as a file.',
         [{ text: 'OK' }]
       );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       console.log('Exported data:', JSON.stringify(data, null, 2));
     } catch (error) {
       Alert.alert('Error', 'Failed to export data');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsExporting(false);
     }
   };
 
   const handleDeleteAccount = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Alert.alert(
       'Delete Account',
       'Are you sure you want to delete your account? This action cannot be undone.',
@@ -53,8 +68,10 @@ export default function SettingsScreen() {
               await gdprAPI.deleteAccount();
               await logout();
               router.replace('/');
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch (error) {
               Alert.alert('Error', 'Failed to delete account');
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             } finally {
               setIsDeleting(false);
             }
@@ -65,6 +82,7 @@ export default function SettingsScreen() {
   };
 
   const handleLogout = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
       'Logout',
       'Are you sure you want to log out?',
@@ -82,180 +100,227 @@ export default function SettingsScreen() {
   };
 
   const handleActivatePremium = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await premiumAPI.activate();
       Alert.alert('Success', 'Premium features activated!');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       Alert.alert('Error', 'Failed to activate premium');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
+    <ScreenWrapper>
+      {/* Header */}
+      <Animated.View 
+        entering={FadeInDown.duration(200)}
+        style={styles.header}
+      >
+        <BackButton onPress={() => router.back()} />
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={{ width: 44 }} />
-      </View>
+      </Animated.View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Profile Section */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.name?.charAt(0)?.toUpperCase() || 'U'}
-            </Text>
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{user?.name}</Text>
-            <Text style={styles.profileEmail}>{user?.email}</Text>
-          </View>
-          <View style={[
-            styles.premiumBadge,
-            user?.is_premium && styles.premiumBadgeActive
-          ]}>
-            <Ionicons 
-              name="star" 
-              size={14} 
-              color={user?.is_premium ? '#FFF' : '#999'} 
-            />
-            <Text style={[
-              styles.premiumText,
-              user?.is_premium && styles.premiumTextActive
+        <Animated.View entering={FadeInDown.duration(300).delay(100)}>
+          <GlassCard style={styles.profileCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+              </Text>
+            </View>
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName}>{user?.name}</Text>
+              <Text style={styles.profileEmail}>{user?.email}</Text>
+            </View>
+            <View style={[
+              styles.premiumBadge,
+              user?.is_premium && styles.premiumBadgeActive
             ]}>
-              {user?.is_premium ? 'Premium' : 'Free'}
-            </Text>
-          </View>
-        </View>
+              <Ionicons 
+                name="star" 
+                size={12} 
+                color={user?.is_premium ? theme.colors.textInverse : theme.colors.textTertiary} 
+              />
+              <Text style={[
+                styles.premiumText,
+                user?.is_premium && styles.premiumTextActive
+              ]}>
+                {user?.is_premium ? 'Premium' : 'Free'}
+              </Text>
+            </View>
+          </GlassCard>
+        </Animated.View>
 
         {/* Account Section */}
-        <View style={styles.section}>
+        <Animated.View entering={FadeInDown.duration(300).delay(200)}>
           <Text style={styles.sectionTitle}>Account</Text>
           
-          <TouchableOpacity 
-            style={styles.menuItem}
+          <MenuItem
+            icon="person-outline"
+            label="Edit Profile"
             onPress={() => router.push('/onboarding/profile')}
-          >
-            <View style={styles.menuIcon}>
-              <Ionicons name="person-outline" size={20} color="#666" />
-            </View>
-            <Text style={styles.menuText}>Edit Profile</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CCC" />
-          </TouchableOpacity>
+          />
 
           {!user?.is_premium && (
-            <TouchableOpacity 
-              style={styles.menuItem}
+            <MenuItem
+              icon="star"
+              label="Upgrade to Premium"
+              subtitle="Unlock AI features"
               onPress={handleActivatePremium}
-            >
-              <View style={[styles.menuIcon, { backgroundColor: '#FFF8E7' }]}>
-                <Ionicons name="star" size={20} color="#E67E22" />
-              </View>
-              <View style={styles.menuContent}>
-                <Text style={styles.menuText}>Upgrade to Premium</Text>
-                <Text style={styles.menuSubtext}>Unlock AI features</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#CCC" />
-            </TouchableOpacity>
+              highlight
+            />
           )}
-        </View>
+        </Animated.View>
 
         {/* Data & Privacy Section */}
-        <View style={styles.section}>
+        <Animated.View entering={FadeInDown.duration(300).delay(300)}>
           <Text style={styles.sectionTitle}>Data & Privacy</Text>
           
-          <TouchableOpacity 
-            style={styles.menuItem}
+          <MenuItem
+            icon="download-outline"
+            label="Export My Data"
             onPress={handleExportData}
-            disabled={isExporting}
-          >
-            <View style={styles.menuIcon}>
-              <Ionicons name="download-outline" size={20} color="#666" />
-            </View>
-            <Text style={styles.menuText}>Export My Data</Text>
-            {isExporting ? (
-              <ActivityIndicator size="small" color="#666" />
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color="#CCC" />
-            )}
-          </TouchableOpacity>
+            loading={isExporting}
+          />
 
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuIcon}>
-              <Ionicons name="document-text-outline" size={20} color="#666" />
-            </View>
-            <Text style={styles.menuText}>Privacy Policy</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CCC" />
-          </TouchableOpacity>
+          <MenuItem
+            icon="document-text-outline"
+            label="Privacy Policy"
+            onPress={() => {}}
+          />
 
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuIcon}>
-              <Ionicons name="shield-checkmark-outline" size={20} color="#666" />
-            </View>
-            <Text style={styles.menuText}>Terms of Service</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CCC" />
-          </TouchableOpacity>
-        </View>
+          <MenuItem
+            icon="shield-checkmark-outline"
+            label="Terms of Service"
+            onPress={() => {}}
+          />
+        </Animated.View>
 
         {/* Danger Zone */}
-        <View style={styles.section}>
+        <Animated.View entering={FadeInDown.duration(300).delay(400)}>
           <Text style={styles.sectionTitle}>Account Actions</Text>
           
-          <TouchableOpacity 
-            style={styles.menuItem}
+          <MenuItem
+            icon="log-out-outline"
+            label="Logout"
             onPress={handleLogout}
-          >
-            <View style={styles.menuIcon}>
-              <Ionicons name="log-out-outline" size={20} color="#666" />
-            </View>
-            <Text style={styles.menuText}>Logout</Text>
-            <Ionicons name="chevron-forward" size={20} color="#CCC" />
-          </TouchableOpacity>
+          />
 
-          <TouchableOpacity 
-            style={styles.menuItem}
+          <MenuItem
+            icon="trash-outline"
+            label="Delete Account"
             onPress={handleDeleteAccount}
-            disabled={isDeleting}
-          >
-            <View style={[styles.menuIcon, { backgroundColor: '#FFEBEE' }]}>
-              <Ionicons name="trash-outline" size={20} color="#E74C3C" />
-            </View>
-            <Text style={[styles.menuText, { color: '#E74C3C' }]}>Delete Account</Text>
-            {isDeleting ? (
-              <ActivityIndicator size="small" color="#E74C3C" />
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color="#CCC" />
-            )}
-          </TouchableOpacity>
-        </View>
+            loading={isDeleting}
+            danger
+          />
+        </Animated.View>
 
         {/* Disclaimer */}
-        <View style={styles.disclaimer}>
-          <Ionicons name="information-circle-outline" size={16} color="#999" />
+        <Animated.View 
+          entering={FadeIn.duration(300).delay(500)}
+          style={styles.disclaimer}
+        >
+          <Ionicons name="information-circle-outline" size={16} color={theme.colors.textTertiary} />
           <Text style={styles.disclaimerText}>
             FridgeAI is not medical advice. Always consult a healthcare professional before making dietary changes.
           </Text>
-        </View>
+        </Animated.View>
 
         <Text style={styles.version}>FridgeAI v1.0.0</Text>
       </ScrollView>
-    </SafeAreaView>
+    </ScreenWrapper>
   );
 }
 
+// Back Button Component
+const BackButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <AnimatedPressable
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}
+      onPressIn={() => { scale.value = withSpring(0.9, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
+      style={[styles.backButton, animatedStyle]}
+    >
+      <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+    </AnimatedPressable>
+  );
+};
+
+// Menu Item Component
+interface MenuItemProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  subtitle?: string;
+  onPress: () => void;
+  loading?: boolean;
+  danger?: boolean;
+  highlight?: boolean;
+}
+
+const MenuItem: React.FC<MenuItemProps> = ({ 
+  icon, 
+  label, 
+  subtitle, 
+  onPress, 
+  loading,
+  danger,
+  highlight,
+}) => {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <AnimatedPressable
+      onPress={() => { if (!loading) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}}
+      onPressIn={() => { scale.value = withSpring(0.98, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
+      disabled={loading}
+      style={[styles.menuItem, animatedStyle]}
+    >
+      <View style={[
+        styles.menuIcon,
+        danger && styles.menuIconDanger,
+        highlight && styles.menuIconHighlight,
+      ]}>
+        <Ionicons 
+          name={icon} 
+          size={20} 
+          color={danger ? theme.colors.error : highlight ? theme.colors.warning : theme.colors.textSecondary} 
+        />
+      </View>
+      <View style={styles.menuContent}>
+        <Text style={[styles.menuText, danger && styles.menuTextDanger]}>
+          {label}
+        </Text>
+        {subtitle && <Text style={styles.menuSubtext}>{subtitle}</Text>}
+      </View>
+      {loading ? (
+        <ShimmerLoader width={20} height={20} borderRadius={10} />
+      ) : (
+        <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+      )}
+    </AnimatedPressable>
+  );
+};
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
   },
   backButton: {
     width: 44,
@@ -264,132 +329,130 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    ...theme.typography.headlineMedium,
+    color: theme.colors.text,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingHorizontal: theme.spacing.xl,
+    paddingBottom: theme.spacing.section,
   },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 24,
+    marginBottom: theme.spacing.xxl,
   },
   avatar: {
     width: 56,
     height: 56,
-    borderRadius: 28,
-    backgroundColor: '#000',
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: theme.spacing.lg,
   },
   avatarText: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#FFF',
+    ...theme.typography.displaySmall,
+    color: theme.colors.textInverse,
   },
   profileInfo: {
     flex: 1,
   },
   profileName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    ...theme.typography.headlineMedium,
+    color: theme.colors.text,
   },
   profileEmail: {
-    fontSize: 14,
-    color: '#666',
+    ...theme.typography.bodySmall,
+    color: theme.colors.textSecondary,
     marginTop: 2,
   },
   premiumBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#F0F0F0',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.md,
   },
   premiumBadgeActive: {
-    backgroundColor: '#E67E22',
+    backgroundColor: theme.colors.warning,
   },
   premiumText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#999',
+    ...theme.typography.labelSmall,
+    color: theme.colors.textTertiary,
   },
   premiumTextActive: {
-    color: '#FFF',
-  },
-  section: {
-    marginBottom: 24,
+    color: theme.colors.textInverse,
   },
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#999',
-    marginBottom: 12,
+    ...theme.typography.labelMedium,
+    color: theme.colors.textTertiary,
+    marginBottom: theme.spacing.md,
+    marginTop: theme.spacing.lg,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
   },
   menuIcon: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFF',
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: theme.spacing.md,
+  },
+  menuIconDanger: {
+    backgroundColor: '#FFEBEE',
+  },
+  menuIconHighlight: {
+    backgroundColor: '#FEF9E7',
   },
   menuContent: {
     flex: 1,
   },
   menuText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#000',
+    ...theme.typography.bodyLarge,
+    color: theme.colors.text,
+  },
+  menuTextDanger: {
+    color: theme.colors.error,
   },
   menuSubtext: {
-    fontSize: 12,
-    color: '#666',
+    ...theme.typography.labelSmall,
+    color: theme.colors.textSecondary,
     marginTop: 2,
   },
   disclaimer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
+    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.lg,
+    marginTop: theme.spacing.xxl,
   },
   disclaimerText: {
     flex: 1,
-    fontSize: 13,
-    color: '#666',
+    ...theme.typography.bodySmall,
+    color: theme.colors.textSecondary,
     lineHeight: 18,
   },
   version: {
+    ...theme.typography.labelSmall,
+    color: theme.colors.textTertiary,
     textAlign: 'center',
-    fontSize: 12,
-    color: '#CCC',
-    marginTop: 24,
+    marginTop: theme.spacing.xxl,
   },
 });
