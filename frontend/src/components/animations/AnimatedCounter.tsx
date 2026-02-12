@@ -6,7 +6,6 @@ import Animated, {
   withTiming,
   withSequence,
   Easing,
-  runOnJS,
 } from 'react-native-reanimated';
 import { theme } from '../../theme';
 
@@ -27,8 +26,17 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   const previousValue = useRef(value);
   const translateY = useSharedValue(0);
   const opacity = useSharedValue(1);
+  const isFirstRender = useRef(true);
 
   useEffect(() => {
+    // Skip animation on first render
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      setDisplayValue(value);
+      previousValue.current = value;
+      return;
+    }
+
     if (previousValue.current !== value) {
       const direction = value < previousValue.current ? -1 : 1;
       
@@ -51,11 +59,13 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
       );
 
       // Update displayed value at midpoint
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         setDisplayValue(value);
       }, duration / 2);
 
       previousValue.current = value;
+      
+      return () => clearTimeout(timer);
     }
   }, [value, duration]);
 
