@@ -154,7 +154,7 @@ class FridgeAITester:
         
         # Test invalid login
         invalid_login = {
-            "email": test_email,
+            "email": f"invalid_{uuid.uuid4().hex[:8]}@fridgeai.com",  # Use different email
             "password": "wrongpassword"
         }
         
