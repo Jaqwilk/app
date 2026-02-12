@@ -488,7 +488,7 @@ Rules:
         
         user_message = UserMessage(
             text="Please analyze this fridge photo and extract all visible food ingredients.",
-            image_contents=[image_content]
+            images=[image_content]
         )
         
         response = await chat.send_message(user_message)
