@@ -461,6 +461,8 @@ async def scan_ingredients(request: IngredientScanRequest, user=Depends(get_curr
     if not check_rate_limit(user["id"]):
         raise HTTPException(status_code=429, detail="You've reached your usage limit. Please try again later.")
     
+    import json
+    
     try:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
@@ -492,7 +494,6 @@ Rules:
         response = await chat.send_message(user_message)
         
         # Parse JSON response
-        import json
         # Clean response - extract JSON
         response_text = response.strip()
         if response_text.startswith("```json"):
