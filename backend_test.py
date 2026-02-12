@@ -12,7 +12,7 @@ import uuid
 import sys
 
 # Backend URL from frontend .env
-BACKEND_URL = "https://macrofit-ai.preview.emergentagent.com/api"
+BACKEND_URL = "https://macro-meal-planner-4.preview.emergentagent.com/api"
 
 class FridgeAITester:
     def __init__(self):

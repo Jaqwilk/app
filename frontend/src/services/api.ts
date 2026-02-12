@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://macrofit-ai.preview.emergentagent.com';
+const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://macro-meal-planner-4.preview.emergentagent.com';
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
