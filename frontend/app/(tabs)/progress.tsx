@@ -8,17 +8,30 @@ import {
   TextInput,
   Alert,
   RefreshControl,
-  Modal
+  Modal,
+  Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../src/store/authStore';
 import { weightAPI, premiumAPI } from '../../src/services/api';
+import { theme } from '../../src/theme';
+import { ScreenWrapper, GlassCard, PrimaryButton, MacroBar } from '../../src/components/ui';
 
 interface WeightEntry {
   date: string;
   weight: number;
 }
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export default function ProgressTab() {
   const { user } = useAuthStore();
@@ -54,16 +67,19 @@ export default function ProgressTab() {
   const handleAddWeight = async () => {
     const weight = parseFloat(newWeight);
     if (isNaN(weight) || weight <= 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       Alert.alert('Invalid Weight', 'Please enter a valid weight');
       return;
     }
 
     try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       const today = new Date().toISOString().split('T')[0];
       await weightAPI.log(today, weight);
       await loadData();
       setShowAddWeight(false);
       setNewWeight('');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       Alert.alert('Error', 'Failed to log weight');
     }
@@ -77,261 +93,268 @@ export default function ProgressTab() {
     : user?.profile?.weight_kg || 0;
   const weightChange = currentWeight - startWeight;
 
-  const getGoalEmoji = () => {
+  const getGoalStatus = () => {
     const goal = user?.profile?.goal;
-    if (goal === 'cut' && weightChange < 0) return '\u{1F525}';
-    if (goal === 'bulk' && weightChange > 0) return '\u{1F4AA}';
-    if (goal === 'maintain' && Math.abs(weightChange) < 1) return '\u{2705}';
-    return '\u{1F3AF}';
+    if (goal === 'cut' && weightChange < 0) return { emoji: '🔥', text: 'On track!' };
+    if (goal === 'bulk' && weightChange > 0) return { emoji: '💪', text: 'Gaining!' };
+    if (goal === 'maintain' && Math.abs(weightChange) < 1) return { emoji: '✓', text: 'Stable' };
+    return { emoji: '🎯', text: 'Keep going!' };
   };
 
+  const goalStatus = getGoalStatus();
+
   return (
-    <SafeAreaView style={styles.container}>
+    <ScreenWrapper>
       <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <View style={styles.header}>
+        {/* Header */}
+        <Animated.View 
+          entering={FadeInDown.duration(300)}
+          style={styles.header}
+        >
           <Text style={styles.headerTitle}>Progress</Text>
-        </View>
+        </Animated.View>
 
         {/* Streak Card */}
-        <View style={styles.streakCard}>
-          <View style={styles.streakIconContainer}>
-            <Ionicons name="flame" size={32} color="#E67E22" />
-          </View>
-          <View style={styles.streakInfo}>
-            <Text style={styles.streakCount}>{streak}</Text>
-            <Text style={styles.streakLabel}>Day Streak</Text>
-          </View>
-          <Text style={styles.streakMessage}>
-            {streak > 0 ? 'Keep it up!' : 'Start logging!'}
-          </Text>
-        </View>
+        <Animated.View entering={FadeInDown.duration(300).delay(100)}>
+          <GlassCard style={styles.streakCard}>
+            <View style={styles.streakIconContainer}>
+              <Ionicons name="flame" size={32} color={theme.colors.warning} />
+            </View>
+            <View style={styles.streakInfo}>
+              <Text style={styles.streakCount}>{streak}</Text>
+              <Text style={styles.streakLabel}>Day Streak</Text>
+            </View>
+            <Text style={styles.streakMessage}>
+              {streak > 0 ? 'Keep it up!' : 'Start logging!'}
+            </Text>
+          </GlassCard>
+        </Animated.View>
 
         {/* Weight Summary */}
-        <View style={styles.weightCard}>
-          <View style={styles.weightHeader}>
-            <Text style={styles.sectionTitle}>Weight</Text>
-            <TouchableOpacity 
-              style={styles.addButton}
-              onPress={() => setShowAddWeight(true)}
-            >
-              <Ionicons name="add" size={20} color="#FFF" />
-            </TouchableOpacity>
-          </View>
+        <Animated.View entering={FadeInDown.duration(300).delay(200)}>
+          <GlassCard>
+            <View style={styles.weightHeader}>
+              <Text style={styles.sectionTitle}>Weight</Text>
+              <AddButton onPress={() => setShowAddWeight(true)} />
+            </View>
 
-          <View style={styles.weightStats}>
-            <View style={styles.weightStat}>
-              <Text style={styles.weightStatLabel}>Start</Text>
-              <Text style={styles.weightStatValue}>{startWeight.toFixed(1)} kg</Text>
+            <View style={styles.weightStats}>
+              <WeightStat label="Start" value={startWeight} />
+              <View style={styles.weightArrow}>
+                <Ionicons name="arrow-forward" size={20} color={theme.colors.textTertiary} />
+              </View>
+              <WeightStat label="Current" value={currentWeight} />
+              <View style={styles.weightChange}>
+                <Text style={[
+                  styles.weightChangeValue,
+                  weightChange < 0 && styles.weightDown,
+                  weightChange > 0 && styles.weightUp
+                ]}>
+                  {weightChange >= 0 ? '+' : ''}{weightChange.toFixed(1)} kg
+                </Text>
+                <Text style={styles.goalEmoji}>{goalStatus.emoji}</Text>
+              </View>
             </View>
-            <View style={styles.weightArrow}>
-              <Ionicons 
-                name={weightChange >= 0 ? "arrow-forward" : "arrow-forward"} 
-                size={24} 
-                color="#999" 
-              />
-            </View>
-            <View style={styles.weightStat}>
-              <Text style={styles.weightStatLabel}>Current</Text>
-              <Text style={styles.weightStatValue}>{currentWeight.toFixed(1)} kg</Text>
-            </View>
-            <View style={styles.weightChange}>
-              <Text style={[
-                styles.weightChangeValue,
-                weightChange < 0 && styles.weightDown,
-                weightChange > 0 && styles.weightUp
-              ]}>
-                {weightChange >= 0 ? '+' : ''}{weightChange.toFixed(1)} kg
-              </Text>
-              <Text style={styles.goalEmoji}>{getGoalEmoji()}</Text>
-            </View>
-          </View>
 
-          {/* Weight History */}
-          {weightHistory.length > 0 && (
-            <View style={styles.weightHistory}>
-              <Text style={styles.historyTitle}>Recent</Text>
-              {weightHistory.slice(0, 7).map((entry, index) => (
-                <View key={index} style={styles.historyItem}>
-                  <Text style={styles.historyDate}>
-                    {new Date(entry.date).toLocaleDateString('en-US', { 
-                      month: 'short', 
-                      day: 'numeric' 
-                    })}
-                  </Text>
-                  <Text style={styles.historyWeight}>{entry.weight.toFixed(1)} kg</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
+            {/* Weight History */}
+            {weightHistory.length > 0 && (
+              <View style={styles.weightHistory}>
+                <Text style={styles.historyTitle}>Recent</Text>
+                {weightHistory.slice(0, 5).map((entry, index) => (
+                  <Animated.View
+                    key={index}
+                    entering={FadeInUp.duration(200).delay(index * 50)}
+                    style={styles.historyItem}
+                  >
+                    <Text style={styles.historyDate}>
+                      {new Date(entry.date).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}
+                    </Text>
+                    <Text style={styles.historyWeight}>{entry.weight.toFixed(1)} kg</Text>
+                  </Animated.View>
+                ))}
+              </View>
+            )}
+          </GlassCard>
+        </Animated.View>
 
         {/* Targets Card */}
-        <View style={styles.targetsCard}>
-          <Text style={styles.sectionTitle}>Daily Targets</Text>
-          
-          <View style={styles.targetItem}>
-            <View style={styles.targetIcon}>
-              <Ionicons name="flame-outline" size={20} color="#E74C3C" />
-            </View>
-            <View style={styles.targetInfo}>
-              <Text style={styles.targetLabel}>Calories</Text>
-              <Text style={styles.targetValue}>{user?.daily_calories || 2000} kcal</Text>
-            </View>
-          </View>
-
-          <View style={styles.targetItem}>
-            <View style={styles.targetIcon}>
-              <Ionicons name="barbell-outline" size={20} color="#3498DB" />
-            </View>
-            <View style={styles.targetInfo}>
-              <Text style={styles.targetLabel}>Protein</Text>
-              <Text style={styles.targetValue}>{user?.daily_protein || 150}g</Text>
-            </View>
-          </View>
-
-          <View style={styles.targetItem}>
-            <View style={styles.targetIcon}>
-              <Ionicons name="leaf-outline" size={20} color="#27AE60" />
-            </View>
-            <View style={styles.targetInfo}>
-              <Text style={styles.targetLabel}>Carbs</Text>
-              <Text style={styles.targetValue}>{user?.daily_carbs || 200}g</Text>
-            </View>
-          </View>
-
-          <View style={styles.targetItem}>
-            <View style={styles.targetIcon}>
-              <Ionicons name="water-outline" size={20} color="#F39C12" />
-            </View>
-            <View style={styles.targetInfo}>
-              <Text style={styles.targetLabel}>Fat</Text>
-              <Text style={styles.targetValue}>{user?.daily_fat || 67}g</Text>
-            </View>
-          </View>
-        </View>
+        <Animated.View entering={FadeInDown.duration(300).delay(300)}>
+          <GlassCard>
+            <Text style={styles.sectionTitle}>Daily Targets</Text>
+            
+            <MacroBar 
+              label="Calories" 
+              current={0} 
+              target={user?.daily_calories || 2000} 
+              color={theme.colors.calories}
+              unit=" kcal"
+            />
+            <MacroBar 
+              label="Protein" 
+              current={0} 
+              target={user?.daily_protein || 150} 
+              color={theme.colors.protein}
+            />
+            <MacroBar 
+              label="Carbs" 
+              current={0} 
+              target={user?.daily_carbs || 200} 
+              color={theme.colors.carbs}
+            />
+            <MacroBar 
+              label="Fat" 
+              current={0} 
+              target={user?.daily_fat || 67} 
+              color={theme.colors.fat}
+            />
+          </GlassCard>
+        </Animated.View>
       </ScrollView>
 
       {/* Add Weight Modal */}
       <Modal
         visible={showAddWeight}
         transparent
-        animationType="slide"
+        animationType="fade"
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Log Weight</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={newWeight}
-              onChangeText={setNewWeight}
-              placeholder="e.g., 70.5"
-              placeholderTextColor="#999"
-              keyboardType="decimal-pad"
-              autoFocus
-            />
-            <Text style={styles.modalUnit}>kg</Text>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.modalCancel}
-                onPress={() => { setShowAddWeight(false); setNewWeight(''); }}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalAdd} onPress={handleAddWeight}>
-                <Text style={styles.modalAddText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+        <Pressable 
+          style={styles.modalOverlay}
+          onPress={() => setShowAddWeight(false)}
+        >
+          <Animated.View 
+            entering={FadeInUp.duration(200)}
+            style={styles.modalContent}
+          >
+            <Pressable onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>Log Weight</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={newWeight}
+                onChangeText={setNewWeight}
+                placeholder="e.g., 70.5"
+                placeholderTextColor={theme.colors.textTertiary}
+                keyboardType="decimal-pad"
+                autoFocus
+              />
+              <Text style={styles.modalUnit}>kg</Text>
+              <View style={styles.modalButtons}>
+                <PrimaryButton
+                  title="Cancel"
+                  onPress={() => { setShowAddWeight(false); setNewWeight(''); }}
+                  variant="outline"
+                  size="md"
+                  style={{ flex: 1 }}
+                />
+                <PrimaryButton
+                  title="Save"
+                  onPress={handleAddWeight}
+                  size="md"
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </Pressable>
+          </Animated.View>
+        </Pressable>
       </Modal>
-    </SafeAreaView>
+    </ScreenWrapper>
   );
 }
 
+// Add Button Component
+const AddButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <AnimatedPressable
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}
+      onPressIn={() => { scale.value = withSpring(0.9, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
+      style={[styles.addButton, animatedStyle]}
+    >
+      <Ionicons name="add" size={20} color={theme.colors.textInverse} />
+    </AnimatedPressable>
+  );
+};
+
+// Weight Stat Component
+const WeightStat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+  <View style={styles.weightStat}>
+    <Text style={styles.weightStatLabel}>{label}</Text>
+    <Text style={styles.weightStatValue}>{value.toFixed(1)} kg</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingHorizontal: theme.spacing.xl,
+    paddingBottom: theme.spacing.section,
+    gap: theme.spacing.md,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: theme.spacing.lg,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#000',
+    ...theme.typography.displayMedium,
+    color: theme.colors.text,
   },
   streakCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF8E7',
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    backgroundColor: '#FEF9E7',
   },
   streakIconContainer: {
     width: 56,
     height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FFF',
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: theme.spacing.lg,
   },
   streakInfo: {
     flex: 1,
   },
   streakCount: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#000',
+    ...theme.typography.displaySmall,
+    color: theme.colors.text,
   },
   streakLabel: {
-    fontSize: 14,
-    color: '#666',
+    ...theme.typography.labelMedium,
+    color: theme.colors.textSecondary,
   },
   streakMessage: {
-    fontSize: 14,
-    color: '#E67E22',
-    fontWeight: '600',
-  },
-  weightCard: {
-    backgroundColor: '#F8F9FA',
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    ...theme.typography.labelMedium,
+    color: theme.colors.warning,
   },
   weightHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: theme.spacing.lg,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    ...theme.typography.headlineMedium,
+    color: theme.colors.text,
   },
   addButton: {
     width: 32,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: '#000',
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -339,162 +362,98 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: theme.spacing.lg,
   },
   weightStat: {
     alignItems: 'center',
   },
   weightStatLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
+    ...theme.typography.labelSmall,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
   },
   weightStatValue: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#000',
+    ...theme.typography.headlineSmall,
+    color: theme.colors.text,
   },
   weightArrow: {
-    paddingHorizontal: 8,
+    paddingHorizontal: theme.spacing.sm,
   },
   weightChange: {
     alignItems: 'center',
   },
   weightChangeValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
+    ...theme.typography.labelLarge,
+    color: theme.colors.textSecondary,
   },
   weightDown: {
-    color: '#27AE60',
+    color: theme.colors.success,
   },
   weightUp: {
-    color: '#E74C3C',
+    color: theme.colors.error,
   },
   goalEmoji: {
     fontSize: 20,
-    marginTop: 4,
+    marginTop: theme.spacing.xs,
   },
   weightHistory: {
     borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    paddingTop: 16,
+    borderTopColor: theme.colors.border,
+    paddingTop: theme.spacing.lg,
   },
   historyTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 12,
+    ...theme.typography.labelMedium,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.md,
   },
   historyItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: theme.spacing.sm,
   },
   historyDate: {
-    fontSize: 14,
-    color: '#666',
+    ...theme.typography.bodyMedium,
+    color: theme.colors.textSecondary,
   },
   historyWeight: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-  },
-  targetsCard: {
-    backgroundColor: '#F8F9FA',
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 16,
-  },
-  targetItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  targetIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  targetInfo: {
-    flex: 1,
-  },
-  targetLabel: {
-    fontSize: 14,
-    color: '#666',
-  },
-  targetValue: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    ...theme.typography.labelLarge,
+    color: theme.colors.text,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderTopLeftRadius: theme.radius.xxl,
+    borderTopRightRadius: theme.radius.xxl,
+    padding: theme.spacing.xxl,
+    paddingBottom: theme.spacing.section,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 20,
+    ...theme.typography.headlineLarge,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.lg,
   },
   modalInput: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#000',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    ...theme.typography.displaySmall,
+    color: theme.colors.text,
     textAlign: 'center',
   },
   modalUnit: {
-    fontSize: 14,
-    color: '#666',
+    ...theme.typography.labelMedium,
+    color: theme.colors.textSecondary,
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 20,
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.lg,
   },
   modalButtons: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  modalCancel: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  modalCancelText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  modalAdd: {
-    flex: 1,
-    backgroundColor: '#000',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  modalAddText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFF',
+    gap: theme.spacing.md,
   },
 });

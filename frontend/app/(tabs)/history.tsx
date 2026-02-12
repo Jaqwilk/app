@@ -6,12 +6,24 @@ import {
   ScrollView, 
   TouchableOpacity,
   RefreshControl,
-  Alert
+  Alert,
+  Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  Layout,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { dailyAPI } from '../../src/services/api';
 import { useAuthStore } from '../../src/store/authStore';
+import { theme } from '../../src/theme';
+import { ScreenWrapper, GlassCard, MacroBar } from '../../src/components/ui';
 
 interface MealLog {
   id: string;
@@ -33,6 +45,8 @@ interface DailyLog {
   total_fat: number;
   meals: MealLog[];
 }
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export default function HistoryTab() {
   const { user } = useAuthStore();
@@ -87,10 +101,12 @@ export default function HistoryTab() {
           text: 'Delete', 
           style: 'destructive',
           onPress: async () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             try {
               const dateStr = selectedDate.toISOString().split('T')[0];
               await dailyAPI.deleteMeal(dateStr, mealId);
               await loadDailyLog();
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch (error) {
               Alert.alert('Error', 'Failed to delete meal');
             }
@@ -117,7 +133,7 @@ export default function HistoryTab() {
     };
   };
 
-  const getMealTimeIcon = (mealTime: string) => {
+  const getMealTimeIcon = (mealTime: string): keyof typeof Ionicons.glyphMap => {
     switch (mealTime) {
       case 'breakfast': return 'sunny-outline';
       case 'lunch': return 'partly-sunny-outline';
@@ -131,107 +147,110 @@ export default function HistoryTab() {
   const progress = Math.min((consumed / targetCalories) * 100, 100);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <ScreenWrapper>
+      {/* Header */}
+      <Animated.View 
+        entering={FadeInDown.duration(300)}
+        style={styles.header}
+      >
         <Text style={styles.headerTitle}>History</Text>
-      </View>
+      </Animated.View>
 
       {/* Week Calendar */}
-      <View style={styles.calendarContainer}>
-        <TouchableOpacity 
-          style={styles.navButton}
+      <Animated.View 
+        entering={FadeInDown.duration(300).delay(100)}
+        style={styles.calendarContainer}
+      >
+        <NavButton 
+          icon="chevron-back" 
           onPress={() => {
             const newDate = new Date(selectedDate);
             newDate.setDate(newDate.getDate() - 7);
             setSelectedDate(newDate);
           }}
-        >
-          <Ionicons name="chevron-back" size={20} color="#666" />
-        </TouchableOpacity>
+        />
 
         <View style={styles.weekDays}>
           {weekDates.map((date, index) => {
             const { day, date: dateNum } = formatDate(date);
             return (
-              <TouchableOpacity
+              <DayButton
                 key={index}
-                style={[
-                  styles.dayItem,
-                  isSelected(date) && styles.dayItemSelected,
-                  isToday(date) && !isSelected(date) && styles.dayItemToday
-                ]}
-                onPress={() => setSelectedDate(date)}
-              >
-                <Text style={[
-                  styles.dayLabel,
-                  isSelected(date) && styles.dayLabelSelected
-                ]}>
-                  {day}
-                </Text>
-                <Text style={[
-                  styles.dateLabel,
-                  isSelected(date) && styles.dateLabelSelected
-                ]}>
-                  {dateNum}
-                </Text>
-              </TouchableOpacity>
+                day={day}
+                date={dateNum}
+                isSelected={isSelected(date)}
+                isToday={isToday(date)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setSelectedDate(date);
+                }}
+              />
             );
           })}
         </View>
 
-        <TouchableOpacity 
-          style={styles.navButton}
+        <NavButton 
+          icon="chevron-forward" 
           onPress={() => {
             const newDate = new Date(selectedDate);
             newDate.setDate(newDate.getDate() + 7);
             setSelectedDate(newDate);
           }}
-        >
-          <Ionicons name="chevron-forward" size={20} color="#666" />
-        </TouchableOpacity>
-      </View>
+        />
+      </Animated.View>
 
       {/* Summary Card */}
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryHeader}>
-          <Text style={styles.summaryDate}>
-            {selectedDate.toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              month: 'short', 
-              day: 'numeric' 
-            })}
-          </Text>
-          <Text style={styles.summaryCalories}>
-            {consumed} / {targetCalories} cal
-          </Text>
-        </View>
-        
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
-        </View>
+      <Animated.View 
+        entering={FadeInDown.duration(300).delay(200)}
+        style={styles.summaryContainer}
+      >
+        <GlassCard>
+          <View style={styles.summaryHeader}>
+            <Text style={styles.summaryDate}>
+              {selectedDate.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                month: 'short', 
+                day: 'numeric' 
+              })}
+            </Text>
+            <Text style={styles.summaryCalories}>
+              {consumed} / {targetCalories} cal
+            </Text>
+          </View>
+          
+          <View style={styles.progressBar}>
+            <Animated.View 
+              style={[styles.progressFill, { width: `${progress}%` }]} 
+            />
+          </View>
 
-        <View style={styles.macrosSummary}>
-          <View style={styles.macroItem}>
-            <Text style={styles.macroValue}>{dailyLog?.total_protein || 0}g</Text>
-            <Text style={styles.macroLabel}>Protein</Text>
+          <View style={styles.macrosSummary}>
+            <MacroStat 
+              label="Protein" 
+              value={dailyLog?.total_protein || 0} 
+              color={theme.colors.protein}
+            />
+            <View style={styles.macroDivider} />
+            <MacroStat 
+              label="Carbs" 
+              value={dailyLog?.total_carbs || 0} 
+              color={theme.colors.carbs}
+            />
+            <View style={styles.macroDivider} />
+            <MacroStat 
+              label="Fat" 
+              value={dailyLog?.total_fat || 0} 
+              color={theme.colors.fat}
+            />
           </View>
-          <View style={styles.macroDivider} />
-          <View style={styles.macroItem}>
-            <Text style={styles.macroValue}>{dailyLog?.total_carbs || 0}g</Text>
-            <Text style={styles.macroLabel}>Carbs</Text>
-          </View>
-          <View style={styles.macroDivider} />
-          <View style={styles.macroItem}>
-            <Text style={styles.macroValue}>{dailyLog?.total_fat || 0}g</Text>
-            <Text style={styles.macroLabel}>Fat</Text>
-          </View>
-        </View>
-      </View>
+        </GlassCard>
+      </Animated.View>
 
       {/* Meals List */}
       <ScrollView 
         style={styles.mealsContainer}
         contentContainerStyle={styles.mealsContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -240,54 +259,140 @@ export default function HistoryTab() {
         
         {dailyLog?.meals && dailyLog.meals.length > 0 ? (
           dailyLog.meals.map((meal, index) => (
-            <View key={meal.id || index} style={styles.mealItem}>
-              <View style={styles.mealIcon}>
-                <Ionicons name={getMealTimeIcon(meal.meal_time)} size={20} color="#666" />
-              </View>
-              <View style={styles.mealInfo}>
-                <Text style={styles.mealName}>{meal.name}</Text>
-                <Text style={styles.mealMacros}>
-                  {meal.calories} cal • P: {meal.protein}g • C: {meal.carbs}g • F: {meal.fat}g
-                </Text>
-              </View>
-              <TouchableOpacity 
-                style={styles.deleteButton}
-                onPress={() => handleDeleteMeal(meal.id)}
-              >
-                <Ionicons name="trash-outline" size={18} color="#E74C3C" />
-              </TouchableOpacity>
-            </View>
+            <MealItem
+              key={meal.id || index}
+              meal={meal}
+              index={index}
+              onDelete={() => handleDeleteMeal(meal.id)}
+            />
           ))
         ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="restaurant-outline" size={40} color="#CCC" />
+          <Animated.View 
+            entering={FadeIn.duration(200)}
+            style={styles.emptyState}
+          >
+            <Ionicons name="restaurant-outline" size={40} color={theme.colors.textTertiary} />
             <Text style={styles.emptyText}>No meals logged</Text>
-          </View>
+          </Animated.View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </ScreenWrapper>
   );
 }
 
+// Nav Button Component
+const NavButton: React.FC<{ icon: keyof typeof Ionicons.glyphMap; onPress: () => void }> = ({ icon, onPress }) => {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <AnimatedPressable
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}
+      onPressIn={() => { scale.value = withSpring(0.9, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
+      style={[styles.navButton, animatedStyle]}
+    >
+      <Ionicons name={icon} size={20} color={theme.colors.textSecondary} />
+    </AnimatedPressable>
+  );
+};
+
+// Day Button Component
+interface DayButtonProps {
+  day: string;
+  date: number;
+  isSelected: boolean;
+  isToday: boolean;
+  onPress: () => void;
+}
+
+const DayButton: React.FC<DayButtonProps> = ({ day, date, isSelected, isToday, onPress }) => {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={() => { scale.value = withSpring(0.95, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
+      style={[
+        styles.dayItem,
+        isSelected && styles.dayItemSelected,
+        isToday && !isSelected && styles.dayItemToday,
+        animatedStyle,
+      ]}
+    >
+      <Text style={[styles.dayLabel, isSelected && styles.dayLabelSelected]}>{day}</Text>
+      <Text style={[styles.dateLabel, isSelected && styles.dateLabelSelected]}>{date}</Text>
+    </AnimatedPressable>
+  );
+};
+
+// Macro Stat Component
+const MacroStat: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
+  <View style={styles.macroStat}>
+    <View style={[styles.macroDot, { backgroundColor: color }]} />
+    <View>
+      <Text style={styles.macroStatValue}>{value}g</Text>
+      <Text style={styles.macroStatLabel}>{label}</Text>
+    </View>
+  </View>
+);
+
+// Meal Item Component
+interface MealItemProps {
+  meal: MealLog;
+  index: number;
+  onDelete: () => void;
+}
+
+const MealItem: React.FC<MealItemProps> = ({ meal, index, onDelete }) => {
+  const getMealTimeIcon = (mealTime: string): keyof typeof Ionicons.glyphMap => {
+    switch (mealTime) {
+      case 'breakfast': return 'sunny-outline';
+      case 'lunch': return 'partly-sunny-outline';
+      case 'dinner': return 'moon-outline';
+      default: return 'restaurant-outline';
+    }
+  };
+
+  return (
+    <Animated.View
+      entering={FadeInUp.duration(200).delay(index * 50)}
+      layout={Layout.springify()}
+    >
+      <GlassCard style={styles.mealItem}>
+        <View style={styles.mealIcon}>
+          <Ionicons name={getMealTimeIcon(meal.meal_time)} size={20} color={theme.colors.textSecondary} />
+        </View>
+        <View style={styles.mealInfo}>
+          <Text style={styles.mealName}>{meal.name}</Text>
+          <Text style={styles.mealMacros}>
+            {meal.calories} cal • P: {meal.protein}g • C: {meal.carbs}g • F: {meal.fat}g
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
+          <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
+        </TouchableOpacity>
+      </GlassCard>
+    </Animated.View>
+  );
+};
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.lg,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#000',
+    ...theme.typography.displayMedium,
+    color: theme.colors.text,
   },
   calendarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    marginBottom: 20,
+    paddingHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
   },
   navButton: {
     width: 32,
@@ -302,139 +407,139 @@ const styles = StyleSheet.create({
   },
   dayItem: {
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.radius.lg,
   },
   dayItemSelected: {
-    backgroundColor: '#000',
+    backgroundColor: theme.colors.accent,
   },
   dayItemToday: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: theme.colors.surface,
   },
   dayLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
+    ...theme.typography.labelSmall,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
   },
   dayLabelSelected: {
-    color: '#FFF',
+    color: theme.colors.textInverse,
   },
   dateLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
+    ...theme.typography.headlineSmall,
+    color: theme.colors.text,
   },
   dateLabelSelected: {
-    color: '#FFF',
+    color: theme.colors.textInverse,
   },
-  summaryCard: {
-    marginHorizontal: 20,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
+  summaryContainer: {
+    paddingHorizontal: theme.spacing.xl,
+    marginBottom: theme.spacing.lg,
   },
   summaryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: theme.spacing.md,
   },
   summaryDate: {
-    fontSize: 14,
-    color: '#666',
+    ...theme.typography.labelMedium,
+    color: theme.colors.textSecondary,
   },
   summaryCalories: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
+    ...theme.typography.headlineSmall,
+    color: theme.colors.text,
   },
   progressBar: {
-    height: 8,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 4,
-    marginBottom: 16,
+    height: 6,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 3,
+    marginBottom: theme.spacing.lg,
+    overflow: 'hidden',
   },
   progressFill: {
-    height: 8,
-    backgroundColor: '#000',
-    borderRadius: 4,
+    height: '100%',
+    backgroundColor: theme.colors.accent,
+    borderRadius: 3,
   },
   macrosSummary: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-  },
-  macroItem: {
     alignItems: 'center',
   },
-  macroValue: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+  macroStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
   },
-  macroLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+  macroDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  macroStatValue: {
+    ...theme.typography.headlineSmall,
+    color: theme.colors.text,
+  },
+  macroStatLabel: {
+    ...theme.typography.labelSmall,
+    color: theme.colors.textSecondary,
   },
   macroDivider: {
     width: 1,
-    backgroundColor: '#E0E0E0',
+    height: 32,
+    backgroundColor: theme.colors.border,
   },
   mealsContainer: {
     flex: 1,
   },
   mealsContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingHorizontal: theme.spacing.xl,
+    paddingBottom: theme.spacing.xxl,
   },
   mealsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 16,
+    ...theme.typography.headlineMedium,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.md,
   },
   mealItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
   },
   mealIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFF',
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: theme.spacing.md,
   },
   mealInfo: {
     flex: 1,
   },
   mealName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
+    ...theme.typography.labelLarge,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.xs,
   },
   mealMacros: {
-    fontSize: 12,
-    color: '#666',
+    ...theme.typography.labelSmall,
+    color: theme.colors.textSecondary,
   },
   deleteButton: {
-    padding: 8,
+    padding: theme.spacing.sm,
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: theme.spacing.section,
+    gap: theme.spacing.md,
   },
   emptyText: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 12,
+    ...theme.typography.bodyMedium,
+    color: theme.colors.textTertiary,
   },
 });
