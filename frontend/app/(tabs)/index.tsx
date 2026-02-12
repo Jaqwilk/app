@@ -481,10 +481,11 @@ const styles = StyleSheet.create({
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: theme.spacing.xl,
     paddingVertical: theme.spacing.lg,
     paddingBottom: theme.spacing.xxl,
+    gap: theme.spacing.md,
   },
   remainingPill: {
     flexDirection: 'row',
@@ -493,19 +494,19 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.md,
-    gap: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
   remainingLabel: {
-    ...theme.typography.labelMedium,
-    color: theme.colors.textSecondary,
+    ...theme.typography.labelSmall,
+    color: theme.colors.textTertiary,
   },
   remainingCalories: {
-    ...theme.typography.headlineSmall,
+    ...theme.typography.labelLarge,
     color: theme.colors.text,
   },
   addButton: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surface,
     justifyContent: 'center',
