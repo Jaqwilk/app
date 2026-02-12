@@ -158,9 +158,11 @@ class FridgeAITester:
             "password": "wrongpassword"
         }
         
+        # Add small delay to avoid connection issues
+        import time
+        time.sleep(0.5)
+        
         response = self.make_request("POST", "/auth/login", invalid_login)
-        print(f"DEBUG: Invalid login response status: {response.status_code if response else 'None'}")
-        print(f"DEBUG: Invalid login response text: {response.text if response else 'None'}")
         
         if response and response.status_code == 401:
             self.log_result("Invalid login rejection", True, "Invalid credentials properly rejected")
