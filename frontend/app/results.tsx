@@ -4,26 +4,23 @@ import {
   Text, 
   StyleSheet, 
   ScrollView, 
-  TouchableOpacity,
-  Alert,
   Pressable,
+  Alert,
 } from 'react-native';
 import Animated, {
   FadeIn,
   FadeInDown,
   FadeInUp,
-  SlideInRight,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  Layout,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons'
 import { dailyAPI } from '../src/services/api';
 import { theme } from '../src/theme';
-import { ScreenWrapper, GlassCard, PrimaryButton, MealCardShimmer } from '../src/components/ui';
+import { ScreenWrapper, GlassCard, PrimaryButton } from '../src/components/ui';
 
 interface MealOption {
   name: string;
@@ -43,28 +40,31 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export default function ResultsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
   const [isLogging, setIsLogging] = useState(false);
-  const [loggedMealIndex, setLoggedMealIndex] = useState<number | null>(null);
+  const [isLogged, setIsLogged] = useState(false);
 
   const meals: MealOption[] = params.meals ? JSON.parse(params.meals as string) : [];
   const mealTime = params.mealTime as string || 'lunch';
   const mode = params.mode as string || 'mood';
+  const singleMeal = params.singleMeal === 'true';
 
+  const meal = meals[0]; // Show first/selected meal
   const today = new Date().toISOString().split('T')[0];
 
-  const handleSelectMeal = async (meal: MealOption, index: number) => {
+  const handleLogMeal = async () => {
+    if (!meal) return;
+    
     setIsLogging(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
     try {
       await dailyAPI.logMeal(today, meal, mode, mealTime);
-      setLoggedMealIndex(index);
+      setIsLogged(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
       setTimeout(() => {
         router.replace('/(tabs)');
-      }, 1000);
+      }, 800);
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', error.response?.data?.detail || 'Failed to log meal');
@@ -72,45 +72,24 @@ export default function ResultsScreen() {
     }
   };
 
-  const getMealTimeIcon = (): keyof typeof Ionicons.glyphMap => {
-    switch (mealTime) {
-      case 'breakfast': return 'sunny-outline';
-      case 'lunch': return 'partly-sunny-outline';
-      case 'dinner': return 'moon-outline';
-      default: return 'restaurant-outline';
-    }
-  };
+  if (!meal) {
+    return (
+      <ScreenWrapper>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>No meal selected</Text>
+          <PrimaryButton title="Go Back" onPress={() => router.back()} />
+        </View>
+      </ScreenWrapper>
+    );
+  }
 
   return (
     <ScreenWrapper>
       {/* Header */}
-      <Animated.View 
-        entering={FadeInDown.duration(200)}
-        style={styles.header}
-      >
+      <Animated.View entering={FadeInDown.duration(200)} style={styles.header}>
         <BackButton onPress={() => router.back()} />
-        <View style={styles.headerCenter}>
-          <Ionicons name={getMealTimeIcon()} size={20} color={theme.colors.textSecondary} />
-          <Text style={styles.headerTitle}>
-            {mealTime.charAt(0).toUpperCase() + mealTime.slice(1)} Options
-          </Text>
-        </View>
+        <Text style={styles.headerTitle}>Recipe</Text>
         <View style={{ width: 44 }} />
-      </Animated.View>
-
-      {/* Mode Tag */}
-      <Animated.View 
-        entering={FadeIn.duration(200).delay(100)}
-        style={styles.modeTag}
-      >
-        <Ionicons 
-          name={mode === 'fridge' ? 'grid-outline' : mode === 'mood' ? 'heart-outline' : 'layers-outline'} 
-          size={14} 
-          color={theme.colors.textSecondary} 
-        />
-        <Text style={styles.modeTagText}>
-          {mode.charAt(0).toUpperCase() + mode.slice(1)} Mode
-        </Text>
       </Animated.View>
 
       <ScrollView 
@@ -118,68 +97,128 @@ export default function ResultsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Meal Name */}
         <Animated.Text 
-          entering={FadeIn.duration(200).delay(150)}
-          style={styles.subtitle}
+          entering={FadeInDown.duration(300).delay(100)}
+          style={styles.mealName}
         >
-          {meals.length} meal{meals.length !== 1 ? 's' : ''} tailored to your macros
+          {meal.name}
         </Animated.Text>
 
-        {meals.map((meal, index) => (
-          <MealCard
-            key={index}
-            meal={meal}
-            index={index}
-            isExpanded={expandedIndex === index}
-            onToggle={() => setExpandedIndex(expandedIndex === index ? null : index)}
-            onSelect={() => handleSelectMeal(meal, index)}
-            isLogging={isLogging && expandedIndex === index}
-            isLogged={loggedMealIndex === index}
-          />
-        ))}
+        {/* Time */}
+        <Animated.View 
+          entering={FadeInDown.duration(300).delay(150)}
+          style={styles.timeRow}
+        >
+          <Ionicons name="time-outline" size={16} color={theme.colors.textSecondary} />
+          <Text style={styles.prepTime}>{meal.prep_time_min} min prep time</Text>
+        </Animated.View>
 
-        {meals.length === 0 && (
-          <Animated.View 
-            entering={FadeIn.duration(200)}
-            style={styles.emptyState}
-          >
-            <Ionicons name="alert-circle-outline" size={48} color={theme.colors.textTertiary} />
-            <Text style={styles.emptyText}>No meals generated</Text>
-            <PrimaryButton
-              title="Try Again"
-              onPress={() => router.back()}
-              variant="outline"
-              size="md"
-            />
+        {/* Macros with Colored Dots */}
+        <Animated.View 
+          entering={FadeInDown.duration(300).delay(200)}
+          style={styles.macrosCard}
+        >
+          <MacroItem 
+            label="Calories" 
+            value={meal.calories} 
+            unit="kcal" 
+            color={theme.colors.calories} 
+          />
+          <MacroItem 
+            label="Protein" 
+            value={meal.protein_g} 
+            unit="g" 
+            color={theme.colors.protein} 
+          />
+          <MacroItem 
+            label="Carbs" 
+            value={meal.carbs_g} 
+            unit="g" 
+            color={theme.colors.carbs} 
+          />
+          <MacroItem 
+            label="Fat" 
+            value={meal.fat_g} 
+            unit="g" 
+            color={theme.colors.fat} 
+          />
+        </Animated.View>
+
+        {/* Why it fits */}
+        <Animated.View entering={FadeInDown.duration(300).delay(250)}>
+          <Text style={styles.whyFits}>{meal.why_it_fits}</Text>
+        </Animated.View>
+
+        {/* Ingredients */}
+        <Animated.View entering={FadeInDown.duration(300).delay(300)}>
+          <Text style={styles.sectionTitle}>Ingredients</Text>
+          {meal.ingredients.map((ing, idx) => (
+            <View key={idx} style={styles.ingredientRow}>
+              <View style={styles.ingredientDot} />
+              <Text style={styles.ingredientName}>{ing.name}</Text>
+              <Text style={styles.ingredientAmount}>{ing.amount}</Text>
+            </View>
+          ))}
+        </Animated.View>
+
+        {/* Shopping Addons */}
+        {meal.shopping_addons && meal.shopping_addons.length > 0 && (
+          <Animated.View entering={FadeInDown.duration(300).delay(350)}>
+            <Text style={[styles.sectionTitle, styles.shoppingTitle]}>Shopping List</Text>
+            {meal.shopping_addons.map((item, idx) => (
+              <View key={idx} style={styles.ingredientRow}>
+                <View style={[styles.ingredientDot, styles.shoppingDot]} />
+                <Text style={[styles.ingredientName, styles.shoppingText]}>{item}</Text>
+              </View>
+            ))}
           </Animated.View>
         )}
+
+        {/* Steps */}
+        <Animated.View entering={FadeInDown.duration(300).delay(400)}>
+          <Text style={styles.sectionTitle}>Instructions</Text>
+          {meal.steps.map((step, idx) => (
+            <View key={idx} style={styles.stepRow}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>{idx + 1}</Text>
+              </View>
+              <Text style={styles.stepText}>{step}</Text>
+            </View>
+          ))}
+        </Animated.View>
+
+        {/* Bottom padding */}
+        <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Log Button */}
+      <Animated.View 
+        entering={FadeInUp.duration(300).delay(500)}
+        style={styles.bottomBar}
+      >
+        <PrimaryButton
+          title={isLogged ? "Logged!" : "Log This Meal"}
+          icon={isLogged ? "checkmark-circle" : "add-circle-outline"}
+          onPress={handleLogMeal}
+          loading={isLogging}
+          disabled={isLogged}
+        />
+      </Animated.View>
     </ScreenWrapper>
   );
 }
 
-// Back Button Component
+// Back Button
 const BackButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
   const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = () => {
-    scale.value = withSpring(0.9, theme.animation.spring.snappy);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, theme.animation.spring.gentle);
-  };
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   return (
     <AnimatedPressable
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}
+      onPressIn={() => { scale.value = withSpring(0.9, theme.animation.spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, theme.animation.spring.gentle); }}
       style={[styles.backButton, animatedStyle]}
     >
       <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
@@ -187,142 +226,16 @@ const BackButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
   );
 };
 
-// Meal Card Component
-interface MealCardProps {
-  meal: MealOption;
-  index: number;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onSelect: () => void;
-  isLogging: boolean;
-  isLogged: boolean;
-}
-
-const MealCard: React.FC<MealCardProps> = ({ 
-  meal, 
-  index, 
-  isExpanded, 
-  onToggle, 
-  onSelect,
-  isLogging,
-  isLogged,
-}) => {
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = () => {
-    scale.value = withSpring(0.98, theme.animation.spring.snappy);
-  };
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, theme.animation.spring.gentle);
-  };
-
-  return (
-    <Animated.View
-      entering={FadeInUp.duration(300).delay(200 + index * 100)}
-      layout={Layout.springify().damping(15).stiffness(150)}
-    >
-      <AnimatedPressable
-        onPress={onToggle}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={[styles.mealCard, animatedStyle]}
-      >
-        {/* Header */}
-        <View style={styles.mealHeader}>
-          <View style={styles.mealHeaderContent}>
-            <Text style={styles.mealName}>{meal.name}</Text>
-            <View style={styles.timeRow}>
-              <Ionicons name="time-outline" size={14} color={theme.colors.textSecondary} />
-              <Text style={styles.prepTime}>{meal.prep_time_min} min</Text>
-            </View>
-          </View>
-          <Ionicons 
-            name={isExpanded ? "chevron-up" : "chevron-down"} 
-            size={20} 
-            color={theme.colors.textTertiary} 
-          />
-        </View>
-
-        {/* Macros */}
-        <View style={styles.macros}>
-          <MacroItem value={meal.calories} label="cal" color={theme.colors.calories} />
-          <View style={styles.macroDivider} />
-          <MacroItem value={meal.protein_g} label="protein" unit="g" color={theme.colors.protein} />
-          <View style={styles.macroDivider} />
-          <MacroItem value={meal.carbs_g} label="carbs" unit="g" color={theme.colors.carbs} />
-          <View style={styles.macroDivider} />
-          <MacroItem value={meal.fat_g} label="fat" unit="g" color={theme.colors.fat} />
-        </View>
-
-        {/* Expanded Content */}
-        {isExpanded && (
-          <Animated.View 
-            entering={FadeIn.duration(200)}
-            style={styles.expandedContent}
-          >
-            <Text style={styles.whyFits}>{meal.why_it_fits}</Text>
-            
-            <Text style={styles.sectionTitle}>Ingredients</Text>
-            {meal.ingredients.map((ing, idx) => (
-              <Text key={idx} style={styles.ingredient}>
-                • {ing.name} - {ing.amount}
-              </Text>
-            ))}
-
-            {meal.shopping_addons && meal.shopping_addons.length > 0 && (
-              <>
-                <Text style={[styles.sectionTitle, styles.shoppingTitle]}>
-                  Shopping List
-                </Text>
-                {meal.shopping_addons.map((item, idx) => (
-                  <Text key={idx} style={styles.shoppingItem}>• {item}</Text>
-                ))}
-              </>
-            )}
-
-            <Text style={styles.sectionTitle}>Steps</Text>
-            {meal.steps.map((step, idx) => (
-              <Text key={idx} style={styles.step}>
-                {idx + 1}. {step}
-              </Text>
-            ))}
-          </Animated.View>
-        )}
-
-        {/* Select Button */}
-        <View style={styles.selectButtonContainer}>
-          <PrimaryButton
-            title={isLogged ? "Logged!" : "Log This Meal"}
-            icon={isLogged ? "checkmark-circle" : undefined}
-            onPress={onSelect}
-            loading={isLogging}
-            disabled={isLogged}
-          />
-        </View>
-      </AnimatedPressable>
-    </Animated.View>
-  );
-};
-
-// Macro Item Component
-interface MacroItemProps {
-  value: number;
-  label: string;
-  unit?: string;
-  color: string;
-}
-
-const MacroItem: React.FC<MacroItemProps> = ({ value, label, unit = '', color }) => (
+// Macro Item with Dot
+const MacroItem: React.FC<{ label: string; value: number; unit: string; color: string }> = ({ 
+  label, value, unit, color 
+}) => (
   <View style={styles.macroItem}>
-    <Text style={styles.macroValue}>
-      {value}{unit}
-    </Text>
-    <Text style={styles.macroLabel}>{label}</Text>
+    <View style={[styles.macroDot, { backgroundColor: color }]} />
+    <View>
+      <Text style={styles.macroValue}>{value}<Text style={styles.macroUnit}>{unit}</Text></Text>
+      <Text style={styles.macroLabel}>{label}</Text>
+    </View>
   </View>
 );
 
@@ -340,142 +253,144 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-  },
   headerTitle: {
     ...theme.typography.headlineMedium,
     color: theme.colors.text,
-  },
-  modeTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: theme.spacing.xs,
-    paddingVertical: theme.spacing.sm,
-  },
-  modeTagText: {
-    ...theme.typography.labelSmall,
-    color: theme.colors.textSecondary,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: theme.spacing.xl,
-    paddingBottom: theme.spacing.section,
-  },
-  subtitle: {
-    ...theme.typography.bodyMedium,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: theme.spacing.lg,
-  },
-  mealCard: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderRadius: theme.radius.xl,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.borderLight,
-    ...theme.shadows.md,
-  },
-  mealHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: theme.spacing.md,
-  },
-  mealHeaderContent: {
-    flex: 1,
   },
   mealName: {
-    ...theme.typography.headlineMedium,
+    ...theme.typography.displayMedium,
     color: theme.colors.text,
-    marginBottom: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
   },
   timeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
+    marginBottom: theme.spacing.xl,
   },
   prepTime: {
-    ...theme.typography.labelSmall,
+    ...theme.typography.bodyMedium,
     color: theme.colors.textSecondary,
   },
-  macros: {
+  macrosCard: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: theme.spacing.md,
+    justifyContent: 'space-between',
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    marginBottom: theme.spacing.md,
+    borderRadius: theme.radius.xl,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.xl,
   },
   macroItem: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  macroDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   macroValue: {
     ...theme.typography.headlineSmall,
     color: theme.colors.text,
   },
-  macroLabel: {
+  macroUnit: {
     ...theme.typography.labelSmall,
     color: theme.colors.textSecondary,
-    marginTop: 2,
   },
-  macroDivider: {
-    width: 1,
-    backgroundColor: theme.colors.border,
-    marginVertical: theme.spacing.xs,
-  },
-  expandedContent: {
-    paddingTop: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.borderLight,
+  macroLabel: {
+    ...theme.typography.labelSmall,
+    color: theme.colors.textTertiary,
   },
   whyFits: {
-    ...theme.typography.bodyMedium,
+    ...theme.typography.bodyLarge,
     color: theme.colors.textSecondary,
     fontStyle: 'italic',
-    marginBottom: theme.spacing.lg,
-    lineHeight: 22,
+    marginBottom: theme.spacing.xl,
+    lineHeight: 24,
   },
   sectionTitle: {
-    ...theme.typography.labelLarge,
+    ...theme.typography.headlineMedium,
     color: theme.colors.text,
-    marginTop: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+    marginTop: theme.spacing.lg,
   },
   shoppingTitle: {
     color: theme.colors.warning,
   },
-  ingredient: {
-    ...theme.typography.bodyMedium,
-    color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.xs,
-    paddingLeft: theme.spacing.sm,
+  ingredientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.borderLight,
   },
-  shoppingItem: {
-    ...theme.typography.bodyMedium,
+  ingredientDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: theme.colors.text,
+    marginRight: theme.spacing.md,
+  },
+  shoppingDot: {
+    backgroundColor: theme.colors.warning,
+  },
+  ingredientName: {
+    ...theme.typography.bodyLarge,
+    color: theme.colors.text,
+    flex: 1,
+  },
+  shoppingText: {
     color: theme.colors.warning,
-    marginBottom: theme.spacing.xs,
-    paddingLeft: theme.spacing.sm,
   },
-  step: {
-    ...theme.typography.bodyMedium,
+  ingredientAmount: {
+    ...theme.typography.labelMedium,
     color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.sm,
-    paddingLeft: theme.spacing.sm,
-    lineHeight: 22,
   },
-  selectButtonContainer: {
-    marginTop: theme.spacing.md,
+  stepRow: {
+    flexDirection: 'row',
+    marginBottom: theme.spacing.lg,
+  },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: theme.spacing.md,
+    marginTop: 2,
+  },
+  stepNumberText: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.text,
+  },
+  stepText: {
+    ...theme.typography.bodyLarge,
+    color: theme.colors.textSecondary,
+    flex: 1,
+    lineHeight: 24,
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.lg,
+    paddingBottom: theme.spacing.xxl,
+    backgroundColor: theme.colors.background,
   },
   emptyState: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: theme.spacing.section,
     gap: theme.spacing.lg,
   },
   emptyText: {
