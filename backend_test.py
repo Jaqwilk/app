@@ -60,7 +60,8 @@ class FridgeAITester:
             
             return response
         except requests.exceptions.RequestException as e:
-            return None, str(e)
+            print(f"Request exception: {e}")
+            return None
     
     def test_health_check(self):
         """Test basic health endpoints"""
