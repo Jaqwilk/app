@@ -7,12 +7,11 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  Layout,
+  SlideInDown,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
-import { GlassCard, PrimaryButton } from '../ui';
 
 interface MealOption {
   name: string;
@@ -44,7 +43,7 @@ export const InlineMealResults: React.FC<InlineMealResultsProps> = ({
 }) => {
   return (
     <Animated.View
-      entering={FadeInUp.duration(400).springify()}
+      entering={SlideInDown.duration(400).springify()}
       exiting={FadeOut.duration(200)}
       style={styles.container}
     >
@@ -60,7 +59,7 @@ export const InlineMealResults: React.FC<InlineMealResultsProps> = ({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {meals.map((meal, index) => (
+        {meals.slice(0, 3).map((meal, index) => (
           <MealCard
             key={index}
             meal={meal}
@@ -70,15 +69,13 @@ export const InlineMealResults: React.FC<InlineMealResultsProps> = ({
         ))}
       </ScrollView>
 
-      <View style={styles.actions}>
-        <PrimaryButton
-          title="Generate more"
-          icon="refresh-outline"
-          onPress={onGenerateMore}
-          variant="outline"
-          size="md"
-        />
-      </View>
+      <Pressable 
+        onPress={onGenerateMore} 
+        style={styles.generateMoreButton}
+      >
+        <Ionicons name="refresh-outline" size={16} color={theme.colors.textSecondary} />
+        <Text style={styles.generateMoreText}>Generate more</Text>
+      </Pressable>
     </Animated.View>
   );
 };
@@ -107,7 +104,7 @@ const MealCard: React.FC<MealCardProps> = ({ meal, index, onSelect }) => {
 
   return (
     <Animated.View
-      entering={FadeInDown.duration(300).delay(index * 100)}
+      entering={FadeInDown.duration(300).delay(index * 80)}
     >
       <AnimatedPressable
         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelect(); }}
@@ -168,7 +165,7 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
   },
   mealCard: {
-    width: 200,
+    width: 180,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
     padding: theme.spacing.md,
@@ -178,6 +175,7 @@ const styles = StyleSheet.create({
     ...theme.typography.labelLarge,
     color: theme.colors.text,
     marginBottom: theme.spacing.xs,
+    paddingRight: theme.spacing.lg,
   },
   timeRow: {
     flexDirection: 'row',
@@ -192,11 +190,12 @@ const styles = StyleSheet.create({
   macrosRow: {
     flexDirection: 'row',
     gap: theme.spacing.md,
+    flexWrap: 'wrap',
   },
   macroDot: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
   },
   dot: {
     width: 6,
@@ -212,8 +211,15 @@ const styles = StyleSheet.create({
     top: theme.spacing.md,
     right: theme.spacing.md,
   },
-  actions: {
+  generateMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
     marginTop: theme.spacing.lg,
-    alignItems: 'flex-start',
+    paddingVertical: theme.spacing.sm,
+  },
+  generateMoreText: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.textSecondary,
   },
 });

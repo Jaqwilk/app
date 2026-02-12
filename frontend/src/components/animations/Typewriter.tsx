@@ -1,23 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   withSequence,
-  withDelay,
   withRepeat,
-  runOnJS,
   Easing,
 } from 'react-native-reanimated';
 import { theme } from '../../theme';
 
+// Short, varied prompts that cycle infinitely
 const PROMPTS = [
   "What are you craving?",
   "Scan your fridge",
-  "Hungry for something?",
-  "What should you eat?",
-  "Looking for meal ideas?",
+  "Something light?",
+  "Hungry for pasta?",
+  "Need a quick meal?",
+  "Craving something sweet?",
+  "What sounds good?",
+  "Feeling like tacos?",
 ];
 
 interface TypewriterProps {
@@ -32,11 +34,11 @@ export const Typewriter: React.FC<TypewriterProps> = ({ isActive }) => {
   const cursorOpacity = useSharedValue(1);
 
   useEffect(() => {
-    // Blinking cursor
+    // Blinking cursor animation
     cursorOpacity.value = withRepeat(
       withSequence(
-        withTiming(0, { duration: 500 }),
-        withTiming(1, { duration: 500 })
+        withTiming(0, { duration: 530, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 530, easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       true
@@ -53,29 +55,29 @@ export const Typewriter: React.FC<TypewriterProps> = ({ isActive }) => {
     let timeout: NodeJS.Timeout;
 
     if (isTyping) {
-      // Typing phase
+      // Typing phase - character by character
       if (displayText.length < currentPrompt.length) {
         timeout = setTimeout(() => {
           setDisplayText(currentPrompt.slice(0, displayText.length + 1));
-        }, 50 + Math.random() * 50); // Random delay for natural feel
+        }, 40 + Math.random() * 40); // Slightly faster typing
       } else {
         // Finished typing, wait then start deleting
         timeout = setTimeout(() => {
           setIsTyping(false);
-        }, 2000);
+        }, 1800); // Hold for 1.8s
       }
     } else {
-      // Deleting phase
+      // Deleting phase - faster deletion
       if (displayText.length > 0) {
         timeout = setTimeout(() => {
           setDisplayText(displayText.slice(0, -1));
-        }, 30);
+        }, 25); // Fast deletion
       } else {
         // Finished deleting, move to next prompt
         timeout = setTimeout(() => {
           setCurrentPromptIndex((prev) => (prev + 1) % PROMPTS.length);
           setIsTyping(true);
-        }, 300);
+        }, 200);
       }
     }
 
@@ -100,7 +102,7 @@ export const Typewriter: React.FC<TypewriterProps> = ({ isActive }) => {
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 30,
+    minHeight: 32,
   },
   text: {
     ...theme.typography.headlineLarge,
@@ -108,6 +110,7 @@ const styles = StyleSheet.create({
   },
   cursor: {
     ...theme.typography.headlineLarge,
-    color: theme.colors.textTertiary,
+    color: theme.colors.accent,
+    fontWeight: '300',
   },
 });

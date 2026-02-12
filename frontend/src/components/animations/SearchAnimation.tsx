@@ -1,21 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSequence,
-  withDelay,
   withRepeat,
   interpolate,
   Easing,
   FadeIn,
   FadeOut,
+  runOnJS,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../../theme';
 
 type Phase = 'searching' | 'sources' | 'finalizing';
+
+// Food emojis for the overlapping circles (like in the reference)
+const FOOD_EMOJIS = ['🥐', '🍔', '🥗', '🍕', '🌮', '🍜', '🥙', '🍱', '🥪', '🍳'];
 
 interface SearchAnimationProps {
   onComplete: () => void;
@@ -24,54 +26,73 @@ interface SearchAnimationProps {
 export const SearchAnimation: React.FC<SearchAnimationProps> = ({ onComplete }) => {
   const [phase, setPhase] = useState<Phase>('searching');
   const [sourceCount, setSourceCount] = useState(5);
+  const [emojis, setEmojis] = useState<string[]>(['🥐', '🍔', '🥗']);
   
   const shimmerPosition = useSharedValue(0);
+  const completeCalled = useRef(false);
+
+  // Randomize emojis
+  const getRandomEmojis = () => {
+    const shuffled = [...FOOD_EMOJIS].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, 3);
+  };
 
   useEffect(() => {
-    // Start shimmer animation
+    // Continuous shimmer animation
     shimmerPosition.value = withRepeat(
-      withTiming(1, { duration: 1500, easing: Easing.linear }),
+      withTiming(1, { duration: 1200, easing: Easing.linear }),
       -1,
       false
     );
   }, []);
 
   useEffect(() => {
-    // Phase transitions
     const timers: NodeJS.Timeout[] = [];
 
-    // Searching phase: 1.5s
+    // Phase 1: Searching (1.2s)
     timers.push(setTimeout(() => {
       setPhase('sources');
-    }, 1500));
+      setEmojis(getRandomEmojis());
+    }, 1200));
 
-    // Sources phase: animate count and wait 2s
+    // Phase 2: Sources - animate count
+    let countInterval: NodeJS.Timeout;
     timers.push(setTimeout(() => {
-      const countInterval = setInterval(() => {
+      countInterval = setInterval(() => {
         setSourceCount(prev => {
-          const next = prev + Math.floor(Math.random() * 3) + 1;
-          return next > 19 ? 19 : next;
+          const next = prev + Math.floor(Math.random() * 2) + 1;
+          if (next >= 9) {
+            clearInterval(countInterval);
+            return 9;
+          }
+          return next;
         });
-      }, 200);
-      timers.push(setTimeout(() => clearInterval(countInterval), 1800) as any);
-    }, 1500));
+      }, 180);
+    }, 1200));
 
-    // Finalizing phase: after 3.3s
+    // Phase 3: Finalizing (after 3s)
     timers.push(setTimeout(() => {
+      if (countInterval) clearInterval(countInterval);
       setPhase('finalizing');
-    }, 3500));
+    }, 3000));
 
-    // Complete: after 5s
+    // Complete (after 4.2s)
     timers.push(setTimeout(() => {
-      onComplete();
-    }, 5000));
+      if (!completeCalled.current) {
+        completeCalled.current = true;
+        onComplete();
+      }
+    }, 4200));
 
-    return () => timers.forEach(t => clearTimeout(t));
-  }, []);
+    return () => {
+      timers.forEach(t => clearTimeout(t));
+      if (countInterval) clearInterval(countInterval);
+    };
+  }, [onComplete]);
 
   const shimmerStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateX: interpolate(shimmerPosition.value, [0, 1], [-100, 200]) },
+      { translateX: interpolate(shimmerPosition.value, [0, 1], [-80, 150]) },
     ],
   }));
 
@@ -79,17 +100,17 @@ export const SearchAnimation: React.FC<SearchAnimationProps> = ({ onComplete }) 
     <View style={styles.container}>
       {phase === 'searching' && (
         <Animated.View 
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(200)}
+          entering={FadeIn.duration(150)}
+          exiting={FadeOut.duration(150)}
           style={styles.phaseContainer}
         >
-          <View style={styles.textContainer}>
-            <Text style={styles.phaseText}>Searching</Text>
+          <View style={styles.textWrapper}>
+            <Text style={styles.phaseText}>searching</Text>
             <Animated.View style={[styles.shimmerOverlay, shimmerStyle]}>
               <LinearGradient
-                colors={['transparent', 'rgba(255,255,255,0.8)', 'transparent']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
+                colors={['transparent', 'rgba(255,255,255,0.9)', 'transparent']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
                 style={styles.shimmerGradient}
               />
             </Animated.View>
@@ -99,24 +120,33 @@ export const SearchAnimation: React.FC<SearchAnimationProps> = ({ onComplete }) 
 
       {phase === 'sources' && (
         <Animated.View 
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(200)}
+          entering={FadeIn.duration(150)}
+          exiting={FadeOut.duration(150)}
           style={styles.phaseContainer}
         >
           <View style={styles.sourcesRow}>
-            {/* Overlapping circles */}
-            <View style={styles.circlesContainer}>
-              <View style={[styles.sourceCircle, styles.circle1]} />
-              <View style={[styles.sourceCircle, styles.circle2]} />
-              <View style={[styles.sourceCircle, styles.circle3]} />
+            {/* Overlapping emoji circles */}
+            <View style={styles.emojiCircles}>
+              {emojis.map((emoji, index) => (
+                <View 
+                  key={index} 
+                  style={[
+                    styles.emojiCircle, 
+                    { left: index * 18, zIndex: 3 - index }
+                  ]}
+                >
+                  <Text style={styles.emoji}>{emoji}</Text>
+                </View>
+              ))}
             </View>
-            <View style={styles.textContainer}>
+            
+            <View style={styles.textWrapper}>
               <Text style={styles.sourceText}>{sourceCount} sources</Text>
               <Animated.View style={[styles.shimmerOverlay, shimmerStyle]}>
                 <LinearGradient
-                  colors={['transparent', 'rgba(255,255,255,0.8)', 'transparent']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
+                  colors={['transparent', 'rgba(255,255,255,0.9)', 'transparent']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
                   style={styles.shimmerGradient}
                 />
               </Animated.View>
@@ -127,17 +157,17 @@ export const SearchAnimation: React.FC<SearchAnimationProps> = ({ onComplete }) 
 
       {phase === 'finalizing' && (
         <Animated.View 
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(200)}
+          entering={FadeIn.duration(150)}
+          exiting={FadeOut.duration(150)}
           style={styles.phaseContainer}
         >
-          <View style={styles.textContainer}>
-            <Text style={styles.phaseText}>Finalizing</Text>
+          <View style={styles.textWrapper}>
+            <Text style={styles.phaseText}>finalizing</Text>
             <Animated.View style={[styles.shimmerOverlay, shimmerStyle]}>
               <LinearGradient
-                colors={['transparent', 'rgba(255,255,255,0.8)', 'transparent']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
+                colors={['transparent', 'rgba(255,255,255,0.9)', 'transparent']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
                 style={styles.shimmerGradient}
               />
             </Animated.View>
@@ -150,18 +180,20 @@ export const SearchAnimation: React.FC<SearchAnimationProps> = ({ onComplete }) 
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: theme.spacing.xl,
+    paddingVertical: theme.spacing.md,
   },
   phaseContainer: {
     alignItems: 'flex-start',
   },
-  textContainer: {
+  textWrapper: {
     position: 'relative',
     overflow: 'hidden',
+    borderRadius: theme.radius.sm,
   },
   phaseText: {
     ...theme.typography.bodyLarge,
     color: theme.colors.textSecondary,
+    paddingHorizontal: 2,
   },
   shimmerOverlay: {
     position: 'absolute',
@@ -171,45 +203,38 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   shimmerGradient: {
-    width: 100,
+    width: 80,
     height: '100%',
   },
   sourcesRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.md,
+    gap: theme.spacing.lg,
   },
-  circlesContainer: {
+  emojiCircles: {
     flexDirection: 'row',
-    width: 50,
-    height: 24,
+    width: 70,
+    height: 28,
     position: 'relative',
   },
-  sourceCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+  emojiCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
     position: 'absolute',
     borderWidth: 2,
     borderColor: theme.colors.background,
+    ...theme.shadows.sm,
   },
-  circle1: {
-    backgroundColor: '#3B82F6',
-    left: 0,
-    zIndex: 3,
-  },
-  circle2: {
-    backgroundColor: '#10B981',
-    left: 12,
-    zIndex: 2,
-  },
-  circle3: {
-    backgroundColor: '#F59E0B',
-    left: 24,
-    zIndex: 1,
+  emoji: {
+    fontSize: 14,
   },
   sourceText: {
     ...theme.typography.bodyLarge,
     color: theme.colors.textSecondary,
+    paddingHorizontal: 2,
   },
 });

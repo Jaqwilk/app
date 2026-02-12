@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Text, StyleSheet, TextStyle } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Text, StyleSheet, TextStyle, View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -21,9 +21,9 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   value,
   suffix = '',
   style,
-  duration = 800,
+  duration = 600,
 }) => {
-  const displayValue = useSharedValue(value);
+  const [displayValue, setDisplayValue] = useState(value);
   const previousValue = useRef(value);
   const translateY = useSharedValue(0);
   const opacity = useSharedValue(1);
@@ -32,11 +32,17 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
     if (previousValue.current !== value) {
       const direction = value < previousValue.current ? -1 : 1;
       
-      // Animate out
+      // Slide out animation
       translateY.value = withSequence(
-        withTiming(direction * -20, { duration: duration / 2, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0, { duration: 0 }),
-        withTiming(0, { duration: duration / 2, easing: Easing.out(Easing.ease) })
+        withTiming(direction * -15, { 
+          duration: duration / 2, 
+          easing: Easing.out(Easing.cubic) 
+        }),
+        withTiming(direction * 15, { duration: 0 }),
+        withTiming(0, { 
+          duration: duration / 2, 
+          easing: Easing.out(Easing.cubic) 
+        })
       );
       
       opacity.value = withSequence(
@@ -44,14 +50,14 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
         withTiming(1, { duration: duration / 2 })
       );
 
-      // Update value at midpoint
+      // Update displayed value at midpoint
       setTimeout(() => {
-        displayValue.value = value;
+        setDisplayValue(value);
       }, duration / 2);
 
       previousValue.current = value;
     }
-  }, [value]);
+  }, [value, duration]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -59,15 +65,20 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   }));
 
   return (
-    <Animated.Text style={[styles.text, style, animatedStyle]}>
-      {Math.round(displayValue.value)}{suffix}
-    </Animated.Text>
+    <View style={styles.container}>
+      <Animated.Text style={[styles.text, style, animatedStyle]}>
+        {Math.round(displayValue)}{suffix}
+      </Animated.Text>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    overflow: 'hidden',
+  },
   text: {
-    ...theme.typography.headlineSmall,
+    ...theme.typography.labelLarge,
     color: theme.colors.text,
   },
 });
